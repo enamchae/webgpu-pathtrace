@@ -203,10 +203,24 @@ onMount(async () => {
     }
 });
 
+let width = $state(0);
+let height = $state(0);
+const onResize = () => {
+    width = innerWidth;
+    height = innerHeight;
+};
+onMount(onResize);
+
 </script>
 
 {#if err !== null}
     {err}
 {/if}
 
-<canvas bind:this={canvas}></canvas>
+<svelte:window onresize={onResize} />
+
+<canvas
+    bind:this={canvas}
+    {width}
+    {height}
+></canvas>
