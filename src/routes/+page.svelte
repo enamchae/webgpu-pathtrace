@@ -1,6 +1,8 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import shaderSrc from "./shader.wgsl?raw";
+import computeShaderSrc from "./compute.wgsl?raw";
+    import { command } from "$app/server";
 
 let err = $state<string | null>(null);
 
@@ -128,7 +130,82 @@ onMount(async () => {
 
 
     device.queue.submit([commandEncoder.finish()]);
+
+
+
+    {
+        const N_ELEMENTS = 1000;
+        const BUFFER_SIZE = N_ELEMENTS * 4;
+
+        const output = device.createBuffer({
+            size: BUFFER_SIZE,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        });
+
+        const stagingBuffer = device.createBuffer({
+            size: BUFFER_SIZE,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+        });
+
+        const bindGroupLayout = device.createBindGroupLayout({
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: {
+                        type: "storage",
+                    },
+                },
+            ],
+        });
+
+        const bindGroup = device.createBindGroup({
+            layout: bindGroupLayout,
+            entries: [
+                {
+                    binding: 0,
+                    resource: {
+                        buffer: output,
+                    },
+                },
+            ],
+        });
+
+        const computeShaderModule = device.createShaderModule({code: computeShaderSrc});
+
+        const computePipeline = device.createComputePipeline({
+            layout: device.createPipelineLayout({
+                bindGroupLayouts: [bindGroupLayout],
+            }),
+
+            compute: {
+                module: computeShaderModule,
+                entryPoint: "main",
+            },
+        });
+
+        const commandEncoder = device.createCommandEncoder();
+
+        const computePassEncoder = commandEncoder.beginComputePass();
+        computePassEncoder.setPipeline(computePipeline);
+        computePassEncoder.setBindGroup(0, bindGroup);
+        computePassEncoder.dispatchWorkgroups(Math.ceil(N_ELEMENTS / 64));
+        computePassEncoder.end();
+
+        commandEncoder.copyBufferToBuffer(output, 0, stagingBuffer, 0, BUFFER_SIZE);
+
+        device.queue.submit([commandEncoder.finish()]);
+
+
+        await stagingBuffer.mapAsync(GPUMapMode.READ, 0, BUFFER_SIZE);
+
+        const copyArrayBuffer = stagingBuffer.getMappedRange(0, BUFFER_SIZE);
+        const data = copyArrayBuffer.slice();
+        stagingBuffer.unmap();
+        console.log(new Float32Array(data));
+    }
 });
+
 </script>
 
 {#if err !== null}
