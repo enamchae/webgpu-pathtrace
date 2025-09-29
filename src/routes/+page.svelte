@@ -1,8 +1,7 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import shaderSrc from "./shader.wgsl?raw";
+import renderShaderSrc from "./render.wgsl?raw";
 import computeShaderSrc from "./compute.wgsl?raw";
-    import { command } from "$app/server";
 
 let err = $state<string | null>(null);
 
@@ -40,7 +39,7 @@ onMount(async () => {
     });
 
 
-    const shaderModule = device.createShaderModule({code: shaderSrc});
+    const renderShaderModule = device.createShaderModule({code: renderShaderSrc});
 
     const verts = new Float32Array([
         0.0, 0.6, 0, 1,
@@ -60,9 +59,9 @@ onMount(async () => {
 
     device.queue.writeBuffer(vertBuffer, 0, verts, 0, verts.length);
 
-    const pipeline = device.createRenderPipeline({
+    const renderPipeline = device.createRenderPipeline({
         vertex: {
-            module: shaderModule,
+            module: renderShaderModule,
             entryPoint: "vert",
             buffers: [
                 {
@@ -87,7 +86,7 @@ onMount(async () => {
         },
 
         fragment: {
-            module: shaderModule,
+            module: renderShaderModule,
             entryPoint: "frag",
             targets: [
                 {
@@ -104,9 +103,9 @@ onMount(async () => {
     });
 
 
-    const commandEncoder = device.createCommandEncoder();
+    const renderCommandEncoder = device.createCommandEncoder();
 
-    const passEncoder = commandEncoder.beginRenderPass({
+    const renderPassEncoder = renderCommandEncoder.beginRenderPass({
         colorAttachments: [
             {
                 clearValue: {
@@ -121,15 +120,13 @@ onMount(async () => {
             },
         ],
     });
-
-    passEncoder.setPipeline(pipeline);
-    passEncoder.setVertexBuffer(0, vertBuffer);
-    passEncoder.draw(3);
-
-    passEncoder.end();
+    renderPassEncoder.setPipeline(renderPipeline);
+    renderPassEncoder.setVertexBuffer(0, vertBuffer);
+    renderPassEncoder.draw(3);
+    renderPassEncoder.end();
 
 
-    device.queue.submit([commandEncoder.finish()]);
+    device.queue.submit([renderCommandEncoder.finish()]);
 
 
 
@@ -184,17 +181,17 @@ onMount(async () => {
             },
         });
 
-        const commandEncoder = device.createCommandEncoder();
+        const computeCommandEncoder = device.createCommandEncoder();
 
-        const computePassEncoder = commandEncoder.beginComputePass();
+        const computePassEncoder = computeCommandEncoder.beginComputePass();
         computePassEncoder.setPipeline(computePipeline);
         computePassEncoder.setBindGroup(0, bindGroup);
         computePassEncoder.dispatchWorkgroups(Math.ceil(N_ELEMENTS / 64));
         computePassEncoder.end();
 
-        commandEncoder.copyBufferToBuffer(output, 0, stagingBuffer, 0, BUFFER_SIZE);
+        computeCommandEncoder.copyBufferToBuffer(output, 0, stagingBuffer, 0, BUFFER_SIZE);
 
-        device.queue.submit([commandEncoder.finish()]);
+        device.queue.submit([computeCommandEncoder.finish()]);
 
 
         await stagingBuffer.mapAsync(GPUMapMode.READ, 0, BUFFER_SIZE);
