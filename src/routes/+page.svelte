@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, tick } from "svelte";
 import renderShaderSrc from "./render.wgsl?raw";
 import computeShaderSrc from "./compute.wgsl?raw";
 
@@ -7,7 +7,15 @@ let err = $state<string | null>(null);
 
 let canvas: HTMLCanvasElement;
 
-onMount(async () => {
+let width = $state(0);
+let height = $state(0);
+const onResize = async () => {
+    width = innerWidth;
+    height = innerHeight;
+
+
+    await tick();
+
     if (navigator.gpu === undefined) {
         err = "webgpu not supported";
         return;
@@ -42,14 +50,13 @@ onMount(async () => {
     const renderShaderModule = device.createShaderModule({code: renderShaderSrc});
 
     const verts = new Float32Array([
-        0.0, 0.6, 0, 1,
-        1, 0, 0, 1,
+        -1, 1, 0, 1,
+        1, 1, 0, 1,
+        -1, -1, 0, 1,
 
-        -0.5, -0.6, 0, 1,
-        0, 1, 0, 1,
-
-        0.5, -0.6, 0, 1,
-        0, 0, 1, 1
+        1, 1, 0, 1,
+        -1, -1, 0, 1,
+        1, -1, 0, 1,
     ]);
 
     const vertBuffer = device.createBuffer({
@@ -71,15 +78,9 @@ onMount(async () => {
                             offset: 0,
                             format: "float32x4",
                         },
-
-                        {
-                            shaderLocation: 1,
-                            offset: 16,
-                            format: "float32x4",
-                        },
                     ],
 
-                    arrayStride: 32,
+                    arrayStride: 16,
                     stepMode: "vertex",
                 },
             ],
@@ -112,7 +113,7 @@ onMount(async () => {
                     r: 0,
                     g: 0.5,
                     b: 1,
-                    a: 1,
+                    a: 0,
                 },
                 loadOp: "clear",
                 storeOp: "store",
@@ -122,7 +123,7 @@ onMount(async () => {
     });
     renderPassEncoder.setPipeline(renderPipeline);
     renderPassEncoder.setVertexBuffer(0, vertBuffer);
-    renderPassEncoder.draw(3);
+    renderPassEncoder.draw(6);
     renderPassEncoder.end();
 
 
@@ -130,6 +131,7 @@ onMount(async () => {
 
 
 
+    /*
     {
         const N_ELEMENTS = 1000;
         const BUFFER_SIZE = N_ELEMENTS * 4;
@@ -201,13 +203,7 @@ onMount(async () => {
         stagingBuffer.unmap();
         console.log(new Float32Array(data));
     }
-});
-
-let width = $state(0);
-let height = $state(0);
-const onResize = () => {
-    width = innerWidth;
-    height = innerHeight;
+    */
 };
 onMount(onResize);
 
