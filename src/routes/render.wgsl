@@ -209,6 +209,9 @@ fn frag(
     let angle = atan2(data.uv.y, data.uv.x);
 
     // let dir = normalize(vec3(data.uv, -1));
+
+    // for lens-like rendering, the UV radius determines the angle change along a sphere
+    // the UV angle is just used to rotate the direction vector into place, which is what the matrix does
     let dir = mat3x3(
         cos(angle), -sin(angle), 0,
         sin(angle), cos(angle), 0,

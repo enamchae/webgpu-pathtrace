@@ -9,16 +9,15 @@ import computeShaderSrc from "./compute.wgsl?raw";
 let err = $state<string | null>(null);
 
 let canvas: HTMLCanvasElement;
+let device: GPUDevice;
+let context: GPUCanvasContext;
+let vertBuffer: GPUBuffer;
+let bindGroup: GPUBindGroup;
+let renderPipeline: GPURenderPipeline;
 
-let width = $state(0);
-let height = $state(0);
-const onResize = async () => {
-    width = innerWidth;
-    height = innerHeight;
+const gpuReady = Promise.withResolvers<void>();
 
-
-    await tick();
-
+onMount(async () => {
     if (navigator.gpu === undefined) {
         err = "webgpu not supported";
         return;
@@ -30,13 +29,13 @@ const onResize = async () => {
         return;
     }
 
-    const device = await adapter.requestDevice();
+    device = await adapter.requestDevice();
     if (device === null) {
         err = "could not get device";
         return;
     }
 
-    const context = canvas.getContext("webgpu");
+    context = canvas.getContext("webgpu");
     if (context === null) {
         err = "could not get context";
         return;
@@ -62,7 +61,7 @@ const onResize = async () => {
         1, -1, 0, 1,
     ]);
 
-    const vertBuffer = device.createBuffer({
+    vertBuffer = device.createBuffer({
         size: verts.byteLength,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
@@ -126,7 +125,7 @@ const onResize = async () => {
 
 
 
-    
+
     const bindGroupLayout = device.createBindGroupLayout({
         entries: [
             {
@@ -140,7 +139,7 @@ const onResize = async () => {
     });
 
 
-    const bindGroup = device.createBindGroup({
+    bindGroup = device.createBindGroup({
         layout: bindGroupLayout,
         entries: [
             {
@@ -153,7 +152,7 @@ const onResize = async () => {
     });
 
 
-    const renderPipeline = device.createRenderPipeline({
+    renderPipeline = device.createRenderPipeline({
         vertex: {
             module: renderShaderModule,
             entryPoint: "vert",
@@ -193,6 +192,11 @@ const onResize = async () => {
     });
 
 
+    gpuReady.resolve();
+});
+
+
+const rerender = () => {
     const renderCommandEncoder = device.createCommandEncoder();
 
     const renderPassEncoder = renderCommandEncoder.beginRenderPass({
@@ -210,6 +214,7 @@ const onResize = async () => {
             },
         ],
     });
+
     renderPassEncoder.setPipeline(renderPipeline);
     renderPassEncoder.setBindGroup(0, bindGroup);
     renderPassEncoder.setVertexBuffer(0, vertBuffer);
@@ -218,6 +223,20 @@ const onResize = async () => {
 
 
     device.queue.submit([renderCommandEncoder.finish()]);
+};
+
+let width = $state(0);
+let height = $state(0);
+const onResize = async () => {
+    width = innerWidth;
+    height = innerHeight;
+
+    await Promise.all([
+        tick(),
+        gpuReady.promise,
+    ]);
+
+    rerender();
 
 
 
