@@ -14,7 +14,6 @@ let context: GPUCanvasContext;
 let vertBuffer: GPUBuffer;
 let bindGroup: GPUBindGroup;
 let renderPipeline: GPURenderPipeline;
-let renderCommandEncoder: GPURenderCommandEncoder;
 let resolutionBuffer: GPUBuffer;
 
 const gpuReady = Promise.withResolvers<void>();
@@ -242,7 +241,6 @@ onMount(async () => {
         }),
     });
 
-    renderCommandEncoder = device.createCommandEncoder();
 
 
     gpuReady.resolve();
@@ -252,6 +250,8 @@ onMount(async () => {
 const rerender = () => {
     device.queue.writeBuffer(resolutionBuffer, 0, new Float32Array([width, height]));
 
+
+    const renderCommandEncoder = device.createCommandEncoder();
 
     const renderPassEncoder = renderCommandEncoder.beginRenderPass({
         colorAttachments: [

@@ -214,14 +214,16 @@ fn trace_ray(origin: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
     return vec3(0, 0, 0);
 }
 
-fn sample_rays(uv: vec2f, aspect: vec2f) -> vec3f {
+fn sample_rays(uv: vec2f) -> vec3f {
     var col = vec3f(0, 0, 0);
 
     var nth_sample = 1u;
 
     for (var grid_x = 0u; grid_x < SUPERSAMPLE_RATE; grid_x++) {
         for (var grid_y = 0u; grid_y < SUPERSAMPLE_RATE; grid_y++) {
-            let adjusted_uv = uv + vec2f(f32(grid_x), f32(grid_y)) / f32(SUPERSAMPLE_RATE) / (resolution / 2);
+            let uniform_samples = rand33(vec3f(uv, f32(nth_sample))).xy;
+
+            let adjusted_uv = uv + (vec2f(f32(grid_x), f32(grid_y)) - 0.5 + uniform_samples) / f32(SUPERSAMPLE_RATE) / (resolution / 2);
 
             for (var n_sample = 0u; n_sample < 3; n_sample++) {
                 let sample_col = trace_ray(vec3f(0, 0, 0), get_dir(adjusted_uv), vec3f(adjusted_uv, f32(nth_sample)));
@@ -258,13 +260,13 @@ fn frag(
 ) -> @location(0) vec4f {
     var aspect: vec2f;
     if resolution.y > resolution.x {
-        aspect = vec2f(1, f32(resolution.x) / f32(resolution.y));
+        aspect = vec2f(1, f32(resolution.y) / f32(resolution.x));
     } else {
-        aspect = vec2f(f32(resolution.y) / f32(resolution.x), 1);
+        aspect = vec2f(f32(resolution.x) / f32(resolution.y), 1);
     }
 
 
-    let linear_col = vec4f(sample_rays(data.uv * aspect, aspect), 1);
+    let linear_col = vec4f(sample_rays(data.uv * aspect), 1);
 
     return vec4f(
         pow(linear_col.x, 1 / 2.2),
