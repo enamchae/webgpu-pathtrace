@@ -3,6 +3,8 @@ import { onMount, tick } from "svelte";
 import renderShaderSrc from "./render.wgsl?raw";
 import computeShaderSrc from "./compute.wgsl?raw";
     import { readonly } from "svelte/store";
+    import { Quad } from "./Quad.svelte";
+    import { Vec3 } from "./Vec3.svelte";
 
 let err = $state<string | null>(null);
 
@@ -68,12 +70,37 @@ const onResize = async () => {
     device.queue.writeBuffer(vertBuffer, 0, verts, 0, verts.length);
 
 
+    const quads = [
+        new Quad(
+            new Vec3(1, 1, 1),
+            new Vec3(1, -1, 1),
+            new Vec3(1, -1, 5),
+            new Vec3(1, 1, 5),
+        ),
 
-    const triangles = new Float32Array([
-        1, 1, 5, 0,
-        1, 1, 1, 0,
-        1, -1, 1, 0,
-    ]);
+        new Quad(
+            new Vec3(-1, 1, 1),
+            new Vec3(1, 1, 1),
+            new Vec3(1, 1, 5),
+            new Vec3(-1, 1, 5),
+        ),
+
+        new Quad(
+            new Vec3(-1, -1, 1),
+            new Vec3(-1, 1, 1),
+            new Vec3(-1, 1, 5),
+            new Vec3(-1, -1, 5),
+        ),
+
+        new Quad(
+            new Vec3(1, -1, 1),
+            new Vec3(-1, -1, 1),
+            new Vec3(-1, -1, 5),
+            new Vec3(1, -1, 5),
+        ),
+    ];
+
+    const triangles = new Float32Array([...quads.flatMap(quad => quad.buffer())]);
 
     const trianglesBuffer = device.createBuffer({
         size: triangles.byteLength,

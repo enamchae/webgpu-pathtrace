@@ -8,4 +8,12 @@ export class Vec3 {
         this.y = y;
         this.z = z;
     }
+
+    buffer() {
+        return [this.x, this.y, this.z, 1];
+    }
+
+    * [Symbol.iterator]() {
+        yield* this.buffer();
+    }
 }
