@@ -15,6 +15,7 @@ let vertBuffer: GPUBuffer;
 let bindGroup: GPUBindGroup;
 let renderPipeline: GPURenderPipeline;
 let renderCommandEncoder: GPURenderCommandEncoder;
+let resolutionBuffer: GPUBuffer;
 
 const gpuReady = Promise.withResolvers<void>();
 
@@ -99,6 +100,7 @@ onMount(async () => {
             new Vec3(-1, -1, -2),
             new Vec3(-1, -1, -10),
             new Vec3(1, -1, -4),
+            [0.1, 0.1, 0.2, 1],
         ),
 
         new Quad(
@@ -109,9 +111,9 @@ onMount(async () => {
         ),
 
         new Quad(
-            new Vec3(0.75, 0.75, -4),
+            new Vec3(0.75, 0.75, -3),
             new Vec3(-0.25, 0.75, -4),
-            new Vec3(-0.25, -0.25, -4),
+            new Vec3(-0.25, -0.25, -5),
             new Vec3(0.75, -0.25, -4),
             [0, 0, 0, 1],
             [1, 0, 1, 1],
@@ -138,6 +140,10 @@ onMount(async () => {
     device.queue.writeBuffer(materialsBuffer, 0, materials);
 
 
+    resolutionBuffer = device.createBuffer({
+        size: 8,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
 
 
 
@@ -158,6 +164,14 @@ onMount(async () => {
                     type: "read-only-storage",
                 },
             },
+
+            {
+                binding: 2,
+                visibility: GPUShaderStage.FRAGMENT,
+                buffer: {
+                    type: "uniform",
+                },
+            }
         ],
     });
 
@@ -176,6 +190,13 @@ onMount(async () => {
                 binding: 1,
                 resource: {
                     buffer: materialsBuffer,
+                },
+            },
+
+            {
+                binding: 2,
+                resource: {
+                    buffer: resolutionBuffer,
                 },
             },
         ],
@@ -229,6 +250,9 @@ onMount(async () => {
 
 
 const rerender = () => {
+    device.queue.writeBuffer(resolutionBuffer, 0, new Float32Array([width, height]));
+
+
     const renderPassEncoder = renderCommandEncoder.beginRenderPass({
         colorAttachments: [
             {

@@ -4,6 +4,8 @@ const PI_2 = PI / 2;
 const PI_4 = PI / 4;
 const SQRT_1_3 = 1 / sqrt(3);
 
+const SUPERSAMPLE_RATE = 4;
+
 
 struct Triangle {
     a: vec3f,
@@ -24,6 +26,10 @@ struct Material {
 @group(0)
 @binding(1)
 var<storage, read> materials: array<Material>;
+
+@group(0)
+@binding(2)
+var<uniform> resolution: vec2f;
 
 
 struct VertexOut {
@@ -208,34 +214,57 @@ fn trace_ray(origin: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
     return vec3(0, 0, 0);
 }
 
-fn sample_rays(origin: vec3f, dir: vec3f, uv: vec2f) -> vec3f {
+fn sample_rays(uv: vec2f, aspect: vec2f) -> vec3f {
     var col = vec3f(0, 0, 0);
 
-    for (var n_sample = 0u; n_sample < 40; n_sample++) {
-        col = mix(col, trace_ray(origin, dir, vec3f(uv, f32(n_sample))), 1 / (f32(n_sample) + 1));
+    var nth_sample = 1u;
+
+    for (var grid_x = 0u; grid_x < SUPERSAMPLE_RATE; grid_x++) {
+        for (var grid_y = 0u; grid_y < SUPERSAMPLE_RATE; grid_y++) {
+            let adjusted_uv = uv + vec2f(f32(grid_x), f32(grid_y)) / f32(SUPERSAMPLE_RATE) / (resolution / 2);
+
+            for (var n_sample = 0u; n_sample < 3; n_sample++) {
+                let sample_col = trace_ray(vec3f(0, 0, 0), get_dir(adjusted_uv), vec3f(adjusted_uv, f32(nth_sample)));
+                col = mix(col, sample_col, 1 / f32(nth_sample));
+
+                nth_sample++;
+            }
+        }
     }
 
     return col;
+}
+
+fn get_dir(uv: vec2f) -> vec3f {
+    // let dir = normalize(vec3(data.uv, -1));
+
+    // for lens-like rendering, the UV radius determines the angle change along a sphere
+    // the UV angle is just used to rotate the direction vector into place, using the matrix
+    let sphere_angle = length(uv);
+    let uv_angle = atan2(uv.y, uv.x);
+
+    let dir = mat3x3(
+        cos(uv_angle), -sin(uv_angle), 0,
+        sin(uv_angle), cos(uv_angle), 0,
+        0, 0, 1,
+    ) * vec3f(sin(sphere_angle), 0, -cos(sphere_angle));
+
+    return dir;
 }
 
 @fragment
 fn frag(
     data: VertexOut,
 ) -> @location(0) vec4f {
-    let radius = length(data.uv);
-    let angle = atan2(data.uv.y, data.uv.x);
+    var aspect: vec2f;
+    if resolution.y > resolution.x {
+        aspect = vec2f(1, f32(resolution.x) / f32(resolution.y));
+    } else {
+        aspect = vec2f(f32(resolution.y) / f32(resolution.x), 1);
+    }
 
-    // let dir = normalize(vec3(data.uv, -1));
 
-    // for lens-like rendering, the UV radius determines the angle change along a sphere
-    // the UV angle is just used to rotate the direction vector into place, which is what the matrix does
-    let dir = mat3x3(
-        cos(angle), -sin(angle), 0,
-        sin(angle), cos(angle), 0,
-        0, 0, 1,
-    ) * vec3f(sin(radius), 0, -cos(radius));
-
-    let linear_col = vec4f(sample_rays(vec3f(0, 0, 0), dir, data.uv), 1);
+    let linear_col = vec4f(sample_rays(data.uv * aspect, aspect), 1);
 
     return vec4f(
         pow(linear_col.x, 1 / 2.2),
