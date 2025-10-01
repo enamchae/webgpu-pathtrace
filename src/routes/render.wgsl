@@ -61,7 +61,7 @@ fn triangle_intersect_t(triangle: Triangle, origin: vec3f, dir: vec3f, normal: v
     return dot(triangle.a - origin, normal) / dot(dir, normal);
 }
 
-const EPSILON: f32 = 1e-5;
+const EPSILON: f32 = 1e-4;
 const INF: f32 = pow(2, 126);
 
 fn triangle_intersect_barycentric(triangle: Triangle, intersection_pt: vec3f) -> vec2f {
@@ -172,17 +172,21 @@ fn sample_cosine_weighted_hemisphere(uniform_samples: vec2f, normal: vec3f) -> v
 fn diffuse_reflect(normal: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
     let uniform_samples = rand33(seed);
 
-    let hemispere_point = sample_cosine_weighted_hemisphere(uniform_samples.xy, normal);
-
-    if sign(dot(hemispere_point, normal)) == sign(dot(hemispere_point, dir)) {
-        return -hemispere_point;
+    var new_normal: vec3f;
+    if dot(dir, normal) > 0 {
+        new_normal = -normal;
     } else {
-        return hemispere_point;
+        new_normal = normal;
     }
+
+    let hemisphere_point = sample_cosine_weighted_hemisphere(uniform_samples.xy, new_normal);
+
+    return hemisphere_point;
 }
 
 fn env(dir: vec3f) -> vec3f {
-    return vec3f(0.97, 0.95, 1);
+    return vec3f(0.3, 0.45, 0.5);
+    // return vec3f(0.97, 0.95, 1);
 }
 
 fn trace_ray(origin: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
@@ -191,7 +195,7 @@ fn trace_ray(origin: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
     var current_origin = origin;
     var current_dir = dir;
 
-    for (var depth = 0u; depth < 250; depth++) {
+    for (var depth = 0u; depth < 1000; depth++) {
         let result = intersect(current_origin, current_dir);
 
         if !result.found {
@@ -205,13 +209,13 @@ fn trace_ray(origin: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
 
         let material = materials[result.closest_obj_index];
         if material.emissive.a > 0 {
-            return material.emissive.rgb;
+            return col * material.emissive.rgb;
         }
 
         col *= material.diffuse.rgb;
     }
 
-    return vec3(0, 0, 0);
+    return vec3f(0, 0, 0);
 }
 
 fn sample_rays(uv: vec2f) -> vec3f {
@@ -221,11 +225,11 @@ fn sample_rays(uv: vec2f) -> vec3f {
 
     for (var grid_x = 0u; grid_x < SUPERSAMPLE_RATE; grid_x++) {
         for (var grid_y = 0u; grid_y < SUPERSAMPLE_RATE; grid_y++) {
-            let uniform_samples = rand33(vec3f(uv, f32(nth_sample))).xy;
+            for (var n_sample = 0u; n_sample < 1; n_sample++) {
+                let uniform_samples = rand33(vec3f(uv, f32(nth_sample))).xy;
 
-            let adjusted_uv = uv + (vec2f(f32(grid_x), f32(grid_y)) - 0.5 + uniform_samples) / f32(SUPERSAMPLE_RATE) / (resolution / 2);
+                let adjusted_uv = uv + (vec2f(f32(grid_x), f32(grid_y)) - 0.5 + uniform_samples) / f32(SUPERSAMPLE_RATE) / (resolution / 2);
 
-            for (var n_sample = 0u; n_sample < 3; n_sample++) {
                 let sample_col = trace_ray(vec3f(0, 0, 0), get_dir(adjusted_uv), vec3f(adjusted_uv, f32(nth_sample)));
                 col = mix(col, sample_col, 1 / f32(nth_sample));
 
