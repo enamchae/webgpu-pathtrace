@@ -32,6 +32,51 @@ var<storage, read> materials: array<Material>;
 @binding(2)
 var<uniform> resolution: vec2f;
 
+@group(0)
+@binding(3)
+var<storage, read_write> output: array<vec4f>;
+
+
+@compute
+@workgroup_size(256)
+fn comp(
+    @builtin(global_invocation_id) global_id: vec3u,
+    @builtin(local_invocation_id) local_id: vec3u,
+) {
+    let rx = u32(resolution.x);
+    let ry = u32(resolution.y);
+
+    if global_id.x >= rx * ry { return; }
+
+    let thread_index = global_id.x;
+
+    let y = thread_index / rx;
+    let x = thread_index - y * rx;
+
+
+    var aspect: vec2f;
+    if resolution.y > resolution.x {
+        aspect = vec2f(1, resolution.y / resolution.x);
+    } else {
+        aspect = vec2f(resolution.x / resolution.y, 1);
+    }
+
+
+    var uv = vec2f(f32(x), f32(y)) / resolution * 2 - 1;
+    uv.y *= -1;
+
+    let linear_col = vec4f(sample_rays(uv * aspect), 1);
+
+
+    output[thread_index] = vec4f(
+        pow(linear_col.x, 1 / 2.2),
+        pow(linear_col.y, 1 / 2.2),
+        pow(linear_col.z, 1 / 2.2),
+        1,
+    );
+}
+
+
 
 struct VertexOut {
     @builtin(position) position: vec4f,
@@ -263,20 +308,8 @@ fn get_dir(uv: vec2f) -> vec3f {
 fn frag(
     data: VertexOut,
 ) -> @location(0) vec4f {
-    var aspect: vec2f;
-    if resolution.y > resolution.x {
-        aspect = vec2f(1, f32(resolution.y) / f32(resolution.x));
-    } else {
-        aspect = vec2f(f32(resolution.x) / f32(resolution.y), 1);
-    }
+    let rx = u32(resolution.x);
+    let ry = u32(resolution.y);
 
-
-    let linear_col = vec4f(sample_rays(data.uv * aspect), 1);
-
-    return vec4f(
-        pow(linear_col.x, 1 / 2.2),
-        pow(linear_col.y, 1 / 2.2),
-        pow(linear_col.z, 1 / 2.2),
-        1,
-    );
+    return output[u32(data.position.y) * rx + u32(data.position.x)];
 }

@@ -12,8 +12,11 @@ let canvas: HTMLCanvasElement;
 let device: GPUDevice;
 let context: GPUCanvasContext;
 let vertBuffer: GPUBuffer;
-let bindGroup: GPUBindGroup;
+let trianglesBuffer: GPUBuffer;
+let materialsBuffer: GPUBuffer;
+let bindGroupLayout: GPUBindGroupLayout;
 let renderPipeline: GPURenderPipeline;
+let computePipeline: GPUComputePipeline;
 let resolutionBuffer: GPUBuffer;
 
 const gpuReady = Promise.withResolvers<void>();
@@ -139,7 +142,7 @@ onMount(async () => {
         quad.writeTris(triangles, i);
     }
 
-    const trianglesBuffer = device.createBuffer({
+    trianglesBuffer = device.createBuffer({
         size: triangles.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
@@ -163,7 +166,7 @@ onMount(async () => {
         0, 0, 0, 1,
         1, 1, 1, 1,
     ]);
-    const materialsBuffer = device.createBuffer({
+    materialsBuffer = device.createBuffer({
         size: materials.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
@@ -177,12 +180,11 @@ onMount(async () => {
     });
 
 
-
-    const bindGroupLayout = device.createBindGroupLayout({
+    bindGroupLayout = device.createBindGroupLayout({
         entries: [
             {
                 binding: 0,
-                visibility: GPUShaderStage.FRAGMENT,
+                visibility: GPUShaderStage.COMPUTE,
                 buffer: {
                     type: "read-only-storage",
                 },
@@ -190,7 +192,7 @@ onMount(async () => {
 
             {
                 binding: 1,
-                visibility: GPUShaderStage.FRAGMENT,
+                visibility: GPUShaderStage.COMPUTE,
                 buffer: {
                     type: "read-only-storage",
                 },
@@ -198,36 +200,17 @@ onMount(async () => {
 
             {
                 binding: 2,
-                visibility: GPUShaderStage.FRAGMENT,
+                visibility: GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
                 buffer: {
                     type: "uniform",
                 },
-            }
-        ],
-    });
-
-
-    bindGroup = device.createBindGroup({
-        layout: bindGroupLayout,
-        entries: [
-            {
-                binding: 0,
-                resource: {
-                    buffer: trianglesBuffer,
-                },
             },
 
             {
-                binding: 1,
-                resource: {
-                    buffer: materialsBuffer,
-                },
-            },
-
-            {
-                binding: 2,
-                resource: {
-                    buffer: resolutionBuffer,
+                binding: 3,
+                visibility: GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
+                buffer: {
+                    type: "storage",
                 },
             },
         ],
@@ -274,14 +257,78 @@ onMount(async () => {
     });
 
 
+    computePipeline = device.createComputePipeline({
+        layout: device.createPipelineLayout({
+            bindGroupLayouts: [bindGroupLayout],
+        }),
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp",
+        },
+    });
+
 
     gpuReady.resolve();
 });
 
 
-const rerender = () => {
+const rerender = (nextWidth: number, nextHeight: number) => {
     device.queue.writeBuffer(resolutionBuffer, 0, new Float32Array([width, height]));
 
+
+    const N_ELEMENTS = nextWidth * nextHeight;
+
+
+
+    const outputBuffer = device.createBuffer({
+        size: N_ELEMENTS * 16,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+
+    const bindGroup = device.createBindGroup({
+        layout: bindGroupLayout,
+        entries: [
+            {
+                binding: 0,
+                resource: {
+                    buffer: trianglesBuffer,
+                },
+            },
+
+            {
+                binding: 1,
+                resource: {
+                    buffer: materialsBuffer,
+                },
+            },
+
+            {
+                binding: 2,
+                resource: {
+                    buffer: resolutionBuffer,
+                },
+            },
+
+            {
+                binding: 3,
+                resource: {
+                    buffer: outputBuffer,
+                },
+            },
+        ],
+    });
+
+
+    const computeCommandEncoder = device.createCommandEncoder();
+
+    const computePassEncoder = computeCommandEncoder.beginComputePass();
+    computePassEncoder.setPipeline(computePipeline);
+    computePassEncoder.setBindGroup(0, bindGroup);
+    computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
+    computePassEncoder.end();
+    
 
     const renderCommandEncoder = device.createCommandEncoder();
 
@@ -308,21 +355,32 @@ const rerender = () => {
     renderPassEncoder.end();
 
 
-    device.queue.submit([renderCommandEncoder.finish()]);
+    device.queue.submit([
+        computeCommandEncoder.finish(),
+        renderCommandEncoder.finish(),
+    ]);
 };
 
 let width = $state(0);
 let height = $state(0);
+let waiting = false;
 const onResize = async () => {
-    width = innerWidth;
-    height = innerHeight;
+    const nextWidth = width = innerWidth;
+    const nextHeight = height = innerHeight;
+
+    if (waiting) return;
+
+    waiting = true;
 
     await Promise.all([
         tick(),
         gpuReady.promise,
     ]);
 
-    rerender();
+
+    rerender(nextWidth, nextHeight);
+
+    waiting = false;
 
 
 
