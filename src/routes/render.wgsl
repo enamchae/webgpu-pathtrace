@@ -4,6 +4,7 @@ const PI_2 = PI / 2;
 const PI_4 = PI / 4;
 const SQRT_1_3 = 1 / sqrt(3);
 
+
 struct Triangle {
     a: vec3f,
     b: vec3f,
@@ -13,6 +14,16 @@ struct Triangle {
 @group(0)
 @binding(0)
 var<storage, read> triangles: array<Triangle>;
+
+
+struct Material {
+    diffuse: vec4f,
+    emissive: vec4f,
+}
+
+@group(0)
+@binding(1)
+var<storage, read> materials: array<Material>;
 
 
 struct VertexOut {
@@ -174,7 +185,7 @@ fn trace_ray(origin: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
     var current_origin = origin;
     var current_dir = dir;
 
-    for (var depth = 0u; depth < 100; depth++) {
+    for (var depth = 0u; depth < 250; depth++) {
         let result = intersect(current_origin, current_dir);
 
         if !result.found {
@@ -185,7 +196,13 @@ fn trace_ray(origin: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
         // current_dir = reflect(current_dir, result.intersection.normal);
         current_dir = diffuse_reflect(result.intersection.normal, current_dir, seed);
 
-        col *= vec3f(0.8, 0.9, 0.9);
+
+        let material = materials[result.closest_obj_index];
+        if material.emissive.a > 0 {
+            return material.emissive.rgb;
+        }
+
+        col *= material.diffuse.rgb;
     }
 
     return vec3(0, 0, 0);

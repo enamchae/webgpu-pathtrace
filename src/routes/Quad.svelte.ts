@@ -6,9 +6,11 @@ export class Quad {
         readonly b: Vec3,
         readonly c: Vec3,
         readonly d: Vec3,
+        readonly diffuse: [number, number, number, number]=[0.8, 0.9, 0.9, 1],
+        readonly emissive: [number, number, number, number]=[0, 0, 0, 0],
     ) {}
 
-    buffer() {
+    triBuffer() {
         return [
             ...this.a,
             ...this.b,
@@ -17,6 +19,16 @@ export class Quad {
             ...this.a,
             ...this.c,
             ...this.d,
+        ];
+    }
+
+    materialBuffer() {
+        return [
+            ...this.diffuse,
+            ...this.emissive,
+
+            ...this.diffuse,
+            ...this.emissive,
         ];
     }
 }

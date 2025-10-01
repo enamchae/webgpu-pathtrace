@@ -14,6 +14,7 @@ let context: GPUCanvasContext;
 let vertBuffer: GPUBuffer;
 let bindGroup: GPUBindGroup;
 let renderPipeline: GPURenderPipeline;
+let renderCommandEncoder: GPURenderCommandEncoder;
 
 const gpuReady = Promise.withResolvers<void>();
 
@@ -75,6 +76,7 @@ onMount(async () => {
             new Vec3(1, -1, -2),
             new Vec3(1, -1, -4),
             new Vec3(1, 1, -4),
+            [0.6, 0.1, 0.1, 1],
         ),
 
         new Quad(
@@ -89,6 +91,7 @@ onMount(async () => {
             new Vec3(-1, 1, -2),
             new Vec3(-1, 1, -10),
             new Vec3(-1, -1, -10),
+            [0.1, 0.6, 0.1, 1],
         ),
 
         new Quad(
@@ -110,10 +113,12 @@ onMount(async () => {
             new Vec3(-0.25, 0.75, -4),
             new Vec3(-0.25, -0.25, -4),
             new Vec3(0.75, -0.25, -4),
+            [0, 0, 0, 1],
+            [1, 0, 1, 1],
         ),
     ];
 
-    const triangles = new Float32Array([...quads.flatMap(quad => quad.buffer())]);
+    const triangles = new Float32Array([...quads.flatMap(quad => quad.triBuffer())]);
 
     const trianglesBuffer = device.createBuffer({
         size: triangles.byteLength,
@@ -124,12 +129,30 @@ onMount(async () => {
 
 
 
+    const materials = new Float32Array([...quads.flatMap(quad => quad.materialBuffer())]);
+    const materialsBuffer = device.createBuffer({
+        size: materials.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    device.queue.writeBuffer(materialsBuffer, 0, materials);
+
+
+
 
 
     const bindGroupLayout = device.createBindGroupLayout({
         entries: [
             {
                 binding: 0,
+                visibility: GPUShaderStage.FRAGMENT,
+                buffer: {
+                    type: "read-only-storage",
+                },
+            },
+
+            {
+                binding: 1,
                 visibility: GPUShaderStage.FRAGMENT,
                 buffer: {
                     type: "read-only-storage",
@@ -146,6 +169,13 @@ onMount(async () => {
                 binding: 0,
                 resource: {
                     buffer: trianglesBuffer,
+                },
+            },
+
+            {
+                binding: 1,
+                resource: {
+                    buffer: materialsBuffer,
                 },
             },
         ],
@@ -191,14 +221,14 @@ onMount(async () => {
         }),
     });
 
+    renderCommandEncoder = device.createCommandEncoder();
+
 
     gpuReady.resolve();
 });
 
 
 const rerender = () => {
-    const renderCommandEncoder = device.createCommandEncoder();
-
     const renderPassEncoder = renderCommandEncoder.beginRenderPass({
         colorAttachments: [
             {
