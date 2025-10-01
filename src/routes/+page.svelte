@@ -2,6 +2,7 @@
 import { onMount, tick } from "svelte";
 import renderShaderSrc from "./render.wgsl?raw";
 import computeShaderSrc from "./compute.wgsl?raw";
+    import { readonly } from "svelte/store";
 
 let err = $state<string | null>(null);
 
@@ -66,6 +67,51 @@ const onResize = async () => {
 
     device.queue.writeBuffer(vertBuffer, 0, verts, 0, verts.length);
 
+
+
+    const triangles = new Float32Array([
+        1, 1, 5, 0,
+        1, 1, 1, 0,
+        1, -1, 1, 0,
+    ]);
+
+    const trianglesBuffer = device.createBuffer({
+        size: triangles.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    device.queue.writeBuffer(trianglesBuffer, 0, triangles);
+
+
+
+
+    
+    const bindGroupLayout = device.createBindGroupLayout({
+        entries: [
+            {
+                binding: 0,
+                visibility: GPUShaderStage.FRAGMENT,
+                buffer: {
+                    type: "read-only-storage",
+                },
+            },
+        ],
+    });
+
+
+    const bindGroup = device.createBindGroup({
+        layout: bindGroupLayout,
+        entries: [
+            {
+                binding: 0,
+                resource: {
+                    buffer: trianglesBuffer,
+                },
+            },
+        ],
+    });
+
+
     const renderPipeline = device.createRenderPipeline({
         vertex: {
             module: renderShaderModule,
@@ -100,7 +146,9 @@ const onResize = async () => {
             topology: "triangle-list",
         },
 
-        layout: "auto",
+        layout: device.createPipelineLayout({
+            bindGroupLayouts: [bindGroupLayout],
+        }),
     });
 
 
@@ -122,6 +170,7 @@ const onResize = async () => {
         ],
     });
     renderPassEncoder.setPipeline(renderPipeline);
+    renderPassEncoder.setBindGroup(0, bindGroup);
     renderPassEncoder.setVertexBuffer(0, vertBuffer);
     renderPassEncoder.draw(6);
     renderPassEncoder.end();
