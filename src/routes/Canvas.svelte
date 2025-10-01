@@ -15,9 +15,11 @@ let vertBuffer: GPUBuffer;
 let trianglesBuffer: GPUBuffer;
 let materialsBuffer: GPUBuffer;
 let bindGroupLayout: GPUBindGroupLayout;
+let bindGroup: GPUBindGroup;
 let renderPipeline: GPURenderPipeline;
 let computePipeline: GPUComputePipeline;
 let resolutionBuffer: GPUBuffer;
+let renderDataBuffer: GPUBuffer;
 
 const gpuReady = Promise.withResolvers<void>();
 
@@ -180,6 +182,12 @@ onMount(async () => {
     });
 
 
+    renderDataBuffer = device.createBuffer({
+        size: 4,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+
     bindGroupLayout = device.createBindGroupLayout({
         entries: [
             {
@@ -211,6 +219,14 @@ onMount(async () => {
                 visibility: GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
                 buffer: {
                     type: "storage",
+                },
+            },
+
+            {
+                binding: 4,
+                visibility: GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
+                buffer: {
+                    type: "uniform",
                 },
             },
         ],
@@ -273,13 +289,10 @@ onMount(async () => {
 });
 
 
-const rerender = (nextWidth: number, nextHeight: number) => {
+const hardRerender = async (nextWidth: number, nextHeight: number) => {
     device.queue.writeBuffer(resolutionBuffer, 0, new Float32Array([width, height]));
 
-
     const N_ELEMENTS = nextWidth * nextHeight;
-
-
 
     const outputBuffer = device.createBuffer({
         size: N_ELEMENTS * 16,
@@ -287,7 +300,7 @@ const rerender = (nextWidth: number, nextHeight: number) => {
     });
 
 
-    const bindGroup = device.createBindGroup({
+    bindGroup = device.createBindGroup({
         layout: bindGroupLayout,
         entries: [
             {
@@ -317,48 +330,61 @@ const rerender = (nextWidth: number, nextHeight: number) => {
                     buffer: outputBuffer,
                 },
             },
-        ],
-    });
 
-
-    const computeCommandEncoder = device.createCommandEncoder();
-
-    const computePassEncoder = computeCommandEncoder.beginComputePass();
-    computePassEncoder.setPipeline(computePipeline);
-    computePassEncoder.setBindGroup(0, bindGroup);
-    computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
-    computePassEncoder.end();
-    
-
-    const renderCommandEncoder = device.createCommandEncoder();
-
-    const renderPassEncoder = renderCommandEncoder.beginRenderPass({
-        colorAttachments: [
             {
-                clearValue: {
-                    r: 0,
-                    g: 0.5,
-                    b: 1,
-                    a: 0,
+                binding: 4,
+                resource: {
+                    buffer: renderDataBuffer,
                 },
-                loadOp: "clear",
-                storeOp: "store",
-                view: context.getCurrentTexture().createView(),
             },
         ],
     });
 
-    renderPassEncoder.setPipeline(renderPipeline);
-    renderPassEncoder.setBindGroup(0, bindGroup);
-    renderPassEncoder.setVertexBuffer(0, vertBuffer);
-    renderPassEncoder.draw(6);
-    renderPassEncoder.end();
+    await rerender(nextWidth, nextHeight);
+};
+
+const rerender = async (nextWidth: number, nextHeight: number) => {
+    for (let nthPass = 0; nthPass < 256; nthPass++) {
+        device.queue.writeBuffer(renderDataBuffer, 0, new Uint32Array([nthPass]));
 
 
-    device.queue.submit([
-        computeCommandEncoder.finish(),
-        renderCommandEncoder.finish(),
-    ]);
+        const commandEncoder = device.createCommandEncoder();
+        
+        const computePassEncoder = commandEncoder.beginComputePass();
+        computePassEncoder.setPipeline(computePipeline);
+        computePassEncoder.setBindGroup(0, bindGroup);
+        computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
+        computePassEncoder.end();
+
+
+        const renderPassEncoder = commandEncoder.beginRenderPass({
+            colorAttachments: [
+                {
+                    clearValue: {
+                        r: 0,
+                        g: 0.5,
+                        b: 1,
+                        a: 0,
+                    },
+                    loadOp: "clear",
+                    storeOp: "store",
+                    view: context.getCurrentTexture().createView(),
+                },
+            ],
+        });
+
+        renderPassEncoder.setPipeline(renderPipeline);
+        renderPassEncoder.setBindGroup(0, bindGroup);
+        renderPassEncoder.setVertexBuffer(0, vertBuffer);
+        renderPassEncoder.draw(6);
+        renderPassEncoder.end();
+
+        device.queue.submit([
+            commandEncoder.finish(),
+        ]);
+
+        await new Promise(resolve => requestAnimationFrame(resolve));
+    }
 };
 
 let width = $state(0);
@@ -378,7 +404,7 @@ const onResize = async () => {
     ]);
 
 
-    rerender(nextWidth, nextHeight);
+    await hardRerender(nextWidth, nextHeight);
 
     waiting = false;
 

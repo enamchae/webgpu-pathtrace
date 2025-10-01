@@ -4,7 +4,8 @@ const PI_2 = PI / 2;
 const PI_4 = PI / 4;
 const SQRT_1_3 = 1 / sqrt(3);
 
-const SUPERSAMPLE_RATE = 16;
+const SUPERSAMPLE_RATE = 16u;
+const NTH_SAMPLE = 1u;
 
 
 struct Triangle {
@@ -35,6 +36,14 @@ var<uniform> resolution: vec2f;
 @group(0)
 @binding(3)
 var<storage, read_write> output: array<vec4f>;
+
+@group(0)
+@binding(4)
+var<uniform> render_data: RenderData;
+
+struct RenderData {
+    nth_pass: u32,
+}
 
 
 @compute
@@ -67,13 +76,7 @@ fn comp(
 
     let linear_col = vec4f(sample_rays(uv * aspect), 1);
 
-
-    output[thread_index] = vec4f(
-        pow(linear_col.x, 1 / 2.2),
-        pow(linear_col.y, 1 / 2.2),
-        pow(linear_col.z, 1 / 2.2),
-        1,
-    );
+    output[thread_index] = mix(output[thread_index], linear_col, 1 / (f32(render_data.nth_pass) + 1));
 }
 
 
@@ -264,27 +267,20 @@ fn trace_ray(origin: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
     return vec3f(0, 0, 0);
 }
 
+fn get_supersample(uv: vec2f, grid: vec2u) -> vec3f {
+    let uniform_samples = rand33(vec3f(uv, f32(render_data.nth_pass))).xy;
+
+    let adjusted_uv = uv + (vec2f(grid) - 0.5 + uniform_samples) / f32(SUPERSAMPLE_RATE) / (resolution / 2);
+
+    return trace_ray(vec3f(0, 0, 0), get_dir(adjusted_uv), vec3f(adjusted_uv, f32(render_data.nth_pass)));
+}
+
 fn sample_rays(uv: vec2f) -> vec3f {
-    var col = vec3f(0, 0, 0);
+    let grid_index = render_data.nth_pass % (SUPERSAMPLE_RATE * SUPERSAMPLE_RATE);
+    let grid_x = render_data.nth_pass % SUPERSAMPLE_RATE;
+    let grid_y = render_data.nth_pass / SUPERSAMPLE_RATE;
 
-    var nth_sample = 1u;
-
-    for (var grid_x = 0u; grid_x < SUPERSAMPLE_RATE; grid_x++) {
-        for (var grid_y = 0u; grid_y < SUPERSAMPLE_RATE; grid_y++) {
-            for (var n_sample = 0u; n_sample < 1; n_sample++) {
-                let uniform_samples = rand33(vec3f(uv, f32(nth_sample))).xy;
-
-                let adjusted_uv = uv + (vec2f(f32(grid_x), f32(grid_y)) - 0.5 + uniform_samples) / f32(SUPERSAMPLE_RATE) / (resolution / 2);
-
-                let sample_col = trace_ray(vec3f(0, 0, 0), get_dir(adjusted_uv), vec3f(adjusted_uv, f32(nth_sample)));
-                col = mix(col, sample_col, 1 / f32(nth_sample));
-
-                nth_sample++;
-            }
-        }
-    }
-
-    return col;
+    return get_supersample(uv, vec2u(grid_x, grid_y));
 }
 
 fn get_dir(uv: vec2f) -> vec3f {
@@ -311,5 +307,12 @@ fn frag(
     let rx = u32(resolution.x);
     let ry = u32(resolution.y);
 
-    return output[u32(data.position.y) * rx + u32(data.position.x)];
+    let linear_col = output[u32(data.position.y) * rx + u32(data.position.x)];
+
+    return vec4f(
+        pow(linear_col.x, 1 / 2.2),
+        pow(linear_col.y, 1 / 2.2),
+        pow(linear_col.z, 1 / 2.2),
+        1,
+    );
 }
