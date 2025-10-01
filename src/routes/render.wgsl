@@ -4,11 +4,12 @@ const PI_2 = PI / 2;
 const PI_4 = PI / 4;
 const SQRT_1_3 = 1 / sqrt(3);
 
-const SUPERSAMPLE_RATE = 4;
+const SUPERSAMPLE_RATE = 16;
 
 
 struct Triangle {
     a: vec3f,
+    material_index: u32,
     b: vec3f,
     c: vec3f,
 }
@@ -195,7 +196,7 @@ fn trace_ray(origin: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
     var current_origin = origin;
     var current_dir = dir;
 
-    for (var depth = 0u; depth < 1000; depth++) {
+    for (var depth = 0u; depth < 50; depth++) {
         let result = intersect(current_origin, current_dir);
 
         if !result.found {
@@ -207,7 +208,7 @@ fn trace_ray(origin: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
         current_dir = diffuse_reflect(result.intersection.normal, current_dir, seed);
 
 
-        let material = materials[result.closest_obj_index];
+        let material = materials[triangles[result.closest_obj_index].material_index];
         if material.emissive.a > 0 {
             return col * material.emissive.rgb;
         }

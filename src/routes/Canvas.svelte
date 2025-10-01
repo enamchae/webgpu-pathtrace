@@ -76,36 +76,36 @@ onMount(async () => {
             new Vec3(1, -1, -2),
             new Vec3(1, -1, -4),
             new Vec3(1, 1, -4),
-            [0.6, 0.1, 0.1, 1],
+            1,
         ),
 
         new Quad(
             new Vec3(-1, 1, -2),
             new Vec3(1, 1, -2),
             new Vec3(1, 1, -4),
-            new Vec3(-1, 1, -10),
+            new Vec3(-1, 1, -6),
         ),
 
         new Quad(
             new Vec3(-1, -1, -2),
             new Vec3(-1, 1, -2),
-            new Vec3(-1, 1, -10),
-            new Vec3(-1, -1, -10),
-            [0.1, 0.6, 0.1, 1],
+            new Vec3(-1, 1, -6),
+            new Vec3(-1, -1, -6),
+            2,
         ),
 
         new Quad(
             new Vec3(1, -1, -2),
             new Vec3(-1, -1, -2),
-            new Vec3(-1, -1, -10),
+            new Vec3(-1, -1, -6),
             new Vec3(1, -1, -4),
-            [0.1, 0.1, 0.2, 1],
+            3,
         ),
 
         new Quad(
             new Vec3(1, 1, -4),
-            new Vec3(-1, 1, -10),
-            new Vec3(-1, -1, -10),
+            new Vec3(-1, 1, -6),
+            new Vec3(-1, -1, -6),
             new Vec3(1, -1, -4),
         ),
 
@@ -119,12 +119,11 @@ onMount(async () => {
         // ),
 
         new Quad(
-            new Vec3(0.5, -0.99, -1),
-            new Vec3(-0.5, -0.99, -1),
-            new Vec3(-0.5, -0.99, -6),
-            new Vec3(0.5, -0.99, -6),
-            [0, 0, 0, 1],
-            [1, 1, 1, 1],
+            new Vec3(0.5, -0.95, -1),
+            new Vec3(-0.5, -0.95, -1),
+            new Vec3(-0.5, -0.95, -6),
+            new Vec3(0.5, -0.95, -6),
+            4,
         ),
 
         new Quad(
@@ -132,11 +131,13 @@ onMount(async () => {
             new Vec3(-0.5, 0.3, -2),
             new Vec3(-0.5, 0.3, -6),
             new Vec3(0.5, 0.3, -6),
-            [1, 1, 1, 1],
         ),
     ];
 
-    const triangles = new Float32Array([...quads.flatMap(quad => quad.triBuffer())]);
+    const triangles = new ArrayBuffer(quads.length * 96);
+    for (const [i, quad] of quads.entries()) {
+        quad.writeTris(triangles, i);
+    }
 
     const trianglesBuffer = device.createBuffer({
         size: triangles.byteLength,
@@ -146,8 +147,22 @@ onMount(async () => {
     device.queue.writeBuffer(trianglesBuffer, 0, triangles);
 
 
+    const materials = new Float32Array([
+        0.8, 0.9, 0.9, 1,
+        0, 0, 0, 0,
 
-    const materials = new Float32Array([...quads.flatMap(quad => quad.materialBuffer())]);
+        0.6, 0.1, 0.1, 1,
+        0, 0, 0, 0,
+
+        0.1, 0.6, 0.1, 1,
+        0, 0, 0, 0,
+
+        0.1, 0.1, 0.2, 1,
+        0, 0, 0, 0,
+
+        0, 0, 0, 1,
+        1, 1, 1, 1,
+    ]);
     const materialsBuffer = device.createBuffer({
         size: materials.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,

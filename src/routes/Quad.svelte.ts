@@ -6,29 +6,14 @@ export class Quad {
         readonly b: Vec3,
         readonly c: Vec3,
         readonly d: Vec3,
-        readonly diffuse: [number, number, number, number]=[0.8, 0.9, 0.9, 1],
-        readonly emissive: [number, number, number, number]=[0, 0, 0, 0],
+        readonly materialIndex: number=0,
     ) {}
 
-    triBuffer() {
-        return [
-            ...this.a,
-            ...this.b,
-            ...this.c,
-            
-            ...this.a,
-            ...this.c,
-            ...this.d,
-        ];
-    }
+    writeTris(buffer: ArrayBuffer, i: number) {
+        new Float32Array(buffer, i * 96).set([...this.a, ...this.b, ...this.c]);
+        new Uint32Array(buffer, i * 96 + 12).set([this.materialIndex]);
 
-    materialBuffer() {
-        return [
-            ...this.diffuse,
-            ...this.emissive,
-
-            ...this.diffuse,
-            ...this.emissive,
-        ];
+        new Float32Array(buffer, i * 96 + 48).set([...this.a, ...this.c, ...this.d]);
+        new Uint32Array(buffer, i * 96 + 60).set([this.materialIndex]);
     }
 }
