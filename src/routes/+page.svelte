@@ -74,29 +74,36 @@ const onResize = async () => {
         new Quad(
             new Vec3(1, 1, -1),
             new Vec3(1, -1, -1),
-            new Vec3(1, -1, -5),
-            new Vec3(1, 1, -5),
+            new Vec3(1, -1, -2),
+            new Vec3(1, 1, -2),
         ),
 
         new Quad(
             new Vec3(-1, 1, -1),
             new Vec3(1, 1, -1),
-            new Vec3(1, 1, -5),
-            new Vec3(-1, 1, -5),
+            new Vec3(1, 1, -2),
+            new Vec3(-1, 1, -2),
         ),
 
         new Quad(
             new Vec3(-1, -1, -1),
             new Vec3(-1, 1, -1),
-            new Vec3(-1, 1, -5),
-            new Vec3(-1, -1, -5),
+            new Vec3(-1, 1, -2),
+            new Vec3(-1, -1, -2),
         ),
 
         new Quad(
             new Vec3(1, -1, -1),
             new Vec3(-1, -1, -1),
-            new Vec3(-1, -1, -5),
-            new Vec3(1, -1, -5),
+            new Vec3(-1, -1, -2),
+            new Vec3(1, -1, -2),
+        ),
+
+        new Quad(
+            new Vec3(1, 1, -2),
+            new Vec3(-1, 1, -2),
+            new Vec3(-1, -1, -2),
+            new Vec3(1, -1, -2),
         ),
     ];
 
