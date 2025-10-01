@@ -205,7 +205,15 @@ fn sample_rays(origin: vec3f, dir: vec3f, uv: vec2f) -> vec3f {
 fn frag(
     data: VertexOut,
 ) -> @location(0) vec4f {
-    let dir = normalize(vec3(data.uv, -1));
+    let radius = length(data.uv);
+    let angle = atan2(data.uv.y, data.uv.x);
+
+    // let dir = normalize(vec3(data.uv, -1));
+    let dir = mat3x3(
+        cos(angle), -sin(angle), 0,
+        sin(angle), cos(angle), 0,
+        0, 0, 1,
+    ) * vec3f(sin(radius), 0, -cos(radius));
 
     let linear_col = vec4f(sample_rays(vec3f(0, 0, 0), dir, data.uv), 1);
 

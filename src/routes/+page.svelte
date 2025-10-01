@@ -105,6 +105,13 @@ const onResize = async () => {
             new Vec3(-1, -1, -10),
             new Vec3(1, -1, -4),
         ),
+
+        new Quad(
+            new Vec3(0.75, 0.75, -4),
+            new Vec3(-0.25, 0.75, -4),
+            new Vec3(-0.25, -0.25, -4),
+            new Vec3(0.75, -0.25, -4),
+        ),
     ];
 
     const triangles = new Float32Array([...quads.flatMap(quad => quad.buffer())]);
