@@ -1,9 +1,21 @@
 <script lang="ts">
 import Canvas from "./Canvas.svelte";
+    import Overlays from "./Overlays.svelte";
+
+let nthPass = $state(0);
+let lastRenderElapsedTime = $state(0);
 </script>
 
 <main>
-    <Canvas />
+    <Canvas
+        bind:nthPass
+        bind:lastRenderElapsedTime
+    />
+
+    <Overlays
+        {nthPass}
+        {lastRenderElapsedTime}
+    />
 </main>
 
 <style lang="scss">

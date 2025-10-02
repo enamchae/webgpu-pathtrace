@@ -39,10 +39,18 @@ var<storage, read_write> output: array<vec4f>;
 
 @group(0)
 @binding(4)
-var<uniform> render_data: RenderData;
+var<storage, read_write> bounces: array<Bounce>;
 
-struct RenderData {
-    nth_pass: u32,
+struct Bounce {
+    origin: vec3f,
+    dir: vec3f,
+    seed: vec3f,
+    linear_col: vec3f,
+    terminated: u32, // cannot use bool in storage
+}
+
+fn terminated_bounce_with_col(linear_col: vec3f) -> Bounce {
+    return Bounce(vec3f(0, 0, 0), vec3f(0, 0, 0), vec3f(0, 0, 0), linear_col, 1);
 }
 
 
@@ -74,9 +82,24 @@ fn comp(
     var uv = vec2f(f32(x), f32(y)) / resolution * 2 - 1;
     uv.y *= -1;
 
-    let linear_col = vec4f(sample_rays(uv * aspect), 1);
+    var avg_linear_col = vec3f(0, 0, 0);
 
-    output[thread_index] = mix(output[thread_index], linear_col, 1 / (f32(render_data.nth_pass) + 1));
+    for (var nth_pass = 1u; nth_pass <= 2 * SUPERSAMPLE_RATE * SUPERSAMPLE_RATE; nth_pass++) {
+        var bounce = set_up_sample(uv * aspect, nth_pass);
+        var linear_col = vec3f(0, 0, 0);
+
+        for (var depth = 0u; depth < 50; depth++) {
+            if bounce.terminated == 1 {
+                linear_col = bounce.linear_col;
+                break;
+            }
+            bounce = step_sample(bounce);
+        }
+
+        avg_linear_col = mix(avg_linear_col, linear_col, 1 / f32(nth_pass));
+    }
+    
+    output[thread_index] = vec4(avg_linear_col, 1);
 }
 
 
@@ -238,49 +261,39 @@ fn env(dir: vec3f) -> vec3f {
     // return vec3f(0.97, 0.95, 1);
 }
 
-fn trace_ray(origin: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
-    var col = vec3f(1, 1, 1);
+fn step_sample(bounce: Bounce) -> Bounce {
+    let result = intersect(bounce.origin, bounce.dir);
 
-    var current_origin = origin;
-    var current_dir = dir;
-
-    for (var depth = 0u; depth < 50; depth++) {
-        let result = intersect(current_origin, current_dir);
-
-        if !result.found {
-            return col * env(current_dir);
-        }
-
-        current_origin = result.intersection.point;
-        // current_dir = reflect(current_dir, result.intersection.normal);
-        current_dir = diffuse_reflect(result.intersection.normal, current_dir, seed);
-
-
-        let material = materials[triangles[result.closest_obj_index].material_index];
-        if material.emissive.a > 0 {
-            return col * material.emissive.rgb;
-        }
-
-        col *= material.diffuse.rgb;
+    if !result.found {
+        return terminated_bounce_with_col(bounce.linear_col * env(bounce.dir));
     }
 
-    return vec3f(0, 0, 0);
+    let material = materials[triangles[result.closest_obj_index].material_index];
+    if material.emissive.a > 0 {
+        return terminated_bounce_with_col(bounce.linear_col * material.emissive.rgb);
+    }
+
+
+    let new_origin = result.intersection.point;
+    // current_dir = reflect(current_dir, result.intersection.normal);
+    let new_dir = diffuse_reflect(result.intersection.normal, bounce.dir, bounce.seed);
+
+    return Bounce(new_origin, new_dir, bounce.seed, bounce.linear_col * material.diffuse.rgb, 0);
 }
 
-fn get_supersample(uv: vec2f, grid: vec2u) -> vec3f {
-    let uniform_samples = rand33(vec3f(uv, f32(render_data.nth_pass))).xy;
 
-    let adjusted_uv = uv + (vec2f(grid) - 0.5 + uniform_samples) / f32(SUPERSAMPLE_RATE) / (resolution / 2);
+fn set_up_sample(uv: vec2f, nth_pass: u32) -> Bounce {
+    let uniform_samples = rand33(vec3f(uv, f32(nth_pass))).xy;
 
-    return trace_ray(vec3f(0, 0, 0), get_dir(adjusted_uv), vec3f(adjusted_uv, f32(render_data.nth_pass)));
-}
 
-fn sample_rays(uv: vec2f) -> vec3f {
-    let grid_index = render_data.nth_pass % (SUPERSAMPLE_RATE * SUPERSAMPLE_RATE);
-    let grid_x = render_data.nth_pass % SUPERSAMPLE_RATE;
-    let grid_y = render_data.nth_pass / SUPERSAMPLE_RATE;
+    let grid_index = nth_pass % (SUPERSAMPLE_RATE * SUPERSAMPLE_RATE);
+    let grid_x = nth_pass % SUPERSAMPLE_RATE;
+    let grid_y = nth_pass / SUPERSAMPLE_RATE;
 
-    return get_supersample(uv, vec2u(grid_x, grid_y));
+
+    let adjusted_uv = uv + (vec2f(f32(grid_x), f32(grid_y)) - 0.5 + uniform_samples) / f32(SUPERSAMPLE_RATE) / (resolution / 2);
+
+    return Bounce(vec3f(0, 0, 0), get_dir(adjusted_uv), vec3f(adjusted_uv, f32(nth_pass)), vec3f(1, 1, 1), 0);
 }
 
 fn get_dir(uv: vec2f) -> vec3f {

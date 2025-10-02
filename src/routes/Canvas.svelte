@@ -6,6 +6,14 @@ import computeShaderSrc from "./compute.wgsl?raw";
     import { Quad } from "./Quad.svelte";
     import { Vec3 } from "./Vec3.svelte";
 
+let {
+    nthPass = $bindable(),
+    lastRenderElapsedTime = $bindable(),
+}: {
+    nthPass: number,
+    lastRenderElapsedTime: number,
+} = $props();
+
 let err = $state<string | null>(null);
 
 let canvas: HTMLCanvasElement;
@@ -17,9 +25,8 @@ let materialsBuffer: GPUBuffer;
 let bindGroupLayout: GPUBindGroupLayout;
 let bindGroup: GPUBindGroup;
 let renderPipeline: GPURenderPipeline;
-let computePipeline: GPUComputePipeline;
+let computeSamplePipeline: GPUComputePipeline;
 let resolutionBuffer: GPUBuffer;
-let renderDataBuffer: GPUBuffer;
 
 const gpuReady = Promise.withResolvers<void>();
 
@@ -182,11 +189,6 @@ onMount(async () => {
     });
 
 
-    renderDataBuffer = device.createBuffer({
-        size: 4,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-
 
     bindGroupLayout = device.createBindGroupLayout({
         entries: [
@@ -226,7 +228,7 @@ onMount(async () => {
                 binding: 4,
                 visibility: GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
                 buffer: {
-                    type: "uniform",
+                    type: "storage",
                 },
             },
         ],
@@ -273,7 +275,7 @@ onMount(async () => {
     });
 
 
-    computePipeline = device.createComputePipeline({
+    computeSamplePipeline = device.createComputePipeline({
         layout: device.createPipelineLayout({
             bindGroupLayouts: [bindGroupLayout],
         }),
@@ -297,6 +299,12 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
     const outputBuffer = device.createBuffer({
         size: N_ELEMENTS * 16,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+
+    const bouncesBuffer = device.createBuffer({
+        size: N_ELEMENTS * 64,
+        usage: GPUBufferUsage.STORAGE,
     });
 
 
@@ -334,7 +342,7 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
             {
                 binding: 4,
                 resource: {
-                    buffer: renderDataBuffer,
+                    buffer: bouncesBuffer,
                 },
             },
         ],
@@ -344,47 +352,46 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
 };
 
 const rerender = async (nextWidth: number, nextHeight: number) => {
-    for (let nthPass = 0; nthPass < 256; nthPass++) {
-        device.queue.writeBuffer(renderDataBuffer, 0, new Uint32Array([nthPass]));
+    let start = performance.now();
 
-
-        const commandEncoder = device.createCommandEncoder();
         
-        const computePassEncoder = commandEncoder.beginComputePass();
-        computePassEncoder.setPipeline(computePipeline);
-        computePassEncoder.setBindGroup(0, bindGroup);
-        computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
-        computePassEncoder.end();
+    const commandEncoder = device.createCommandEncoder();
 
+    const computePassEncoder = commandEncoder.beginComputePass();
+    computePassEncoder.setPipeline(computeSamplePipeline);
+    computePassEncoder.setBindGroup(0, bindGroup);
+    computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
+    computePassEncoder.end();
 
-        const renderPassEncoder = commandEncoder.beginRenderPass({
-            colorAttachments: [
-                {
-                    clearValue: {
-                        r: 0,
-                        g: 0.5,
-                        b: 1,
-                        a: 0,
-                    },
-                    loadOp: "clear",
-                    storeOp: "store",
-                    view: context.getCurrentTexture().createView(),
+    const renderPassEncoder = commandEncoder.beginRenderPass({
+        colorAttachments: [
+            {
+                clearValue: {
+                    r: 0,
+                    g: 0.5,
+                    b: 1,
+                    a: 0,
                 },
-            ],
-        });
+                loadOp: "clear",
+                storeOp: "store",
+                view: context.getCurrentTexture().createView(),
+            },
+        ],
+    });
 
-        renderPassEncoder.setPipeline(renderPipeline);
-        renderPassEncoder.setBindGroup(0, bindGroup);
-        renderPassEncoder.setVertexBuffer(0, vertBuffer);
-        renderPassEncoder.draw(6);
-        renderPassEncoder.end();
+    renderPassEncoder.setPipeline(renderPipeline);
+    renderPassEncoder.setBindGroup(0, bindGroup);
+    renderPassEncoder.setVertexBuffer(0, vertBuffer);
+    renderPassEncoder.draw(6);
+    renderPassEncoder.end();
 
-        device.queue.submit([
-            commandEncoder.finish(),
-        ]);
+    device.queue.submit([
+        commandEncoder.finish(),
+    ]);
 
-        await new Promise(resolve => requestAnimationFrame(resolve));
-    }
+    device.queue.onSubmittedWorkDone().then(() => {
+        lastRenderElapsedTime = performance.now() - start;
+    });
 };
 
 let width = $state(0);
