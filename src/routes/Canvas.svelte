@@ -1,10 +1,8 @@
 <script lang="ts">
 import { onMount, tick } from "svelte";
 import renderShaderSrc from "./render.wgsl?raw";
-import computeShaderSrc from "./compute.wgsl?raw";
-    import { readonly } from "svelte/store";
-    import { Quad } from "./Quad.svelte";
-    import { Vec3 } from "./Vec3.svelte";
+import { Quad } from "./Quad.svelte";
+import { Vec3 } from "./Vec3.svelte";
 
 let {
     nthPass = $bindable(),
@@ -302,7 +300,7 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
     });
 
 
-    const bouncesBuffer = device.createBuffer({
+    const raysBuffer = device.createBuffer({
         size: N_ELEMENTS * 64,
         usage: GPUBufferUsage.STORAGE,
     });
@@ -342,7 +340,7 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
             {
                 binding: 4,
                 resource: {
-                    buffer: bouncesBuffer,
+                    buffer: raysBuffer,
                 },
             },
         ],

@@ -35,22 +35,24 @@ var<uniform> resolution: vec2f;
 
 @group(0)
 @binding(3)
-var<storage, read_write> output: array<vec4f>;
+var<storage, read_write> output: array<vec3f>;
 
 @group(0)
 @binding(4)
-var<storage, read_write> bounces: array<Bounce>;
+var<storage, read_write> rays: array<Ray>;
 
-struct Bounce {
+struct Ray {
     origin: vec3f,
     dir: vec3f,
+    last_material_index: u32,
     seed: vec3f,
+    index: u32,
     linear_col: vec3f,
     terminated: u32, // cannot use bool in storage
 }
 
-fn terminated_bounce_with_col(linear_col: vec3f) -> Bounce {
-    return Bounce(vec3f(0, 0, 0), vec3f(0, 0, 0), vec3f(0, 0, 0), linear_col, 1);
+fn terminated_ray_with_col(linear_col: vec3f, index: u32, material_index: u32) -> Ray {
+    return Ray(vec3f(0, 0, 0), vec3f(0, 0, 0), material_index, vec3f(0, 0, 0), index, linear_col, 1);
 }
 
 
@@ -85,23 +87,48 @@ fn comp(
     var avg_linear_col = vec3f(0, 0, 0);
 
     for (var nth_pass = 1u; nth_pass <= 2 * SUPERSAMPLE_RATE * SUPERSAMPLE_RATE; nth_pass++) {
-        var bounce = set_up_sample(uv * aspect, nth_pass);
+        var ray = set_up_sample(uv * aspect, nth_pass, thread_index);
         var linear_col = vec3f(0, 0, 0);
 
-        for (var depth = 0u; depth < 50; depth++) {
-            if bounce.terminated == 1 {
-                linear_col = bounce.linear_col;
+        for (var depth = 0u; depth < 8; depth++) {
+            if ray.terminated == 1 {
+                linear_col = ray.linear_col;
                 break;
             }
-            bounce = step_sample(bounce);
+            ray = step_sample(ray);
         }
 
-        avg_linear_col = mix(avg_linear_col, linear_col, 1 / f32(nth_pass));
+        storageBarrier();
+
+        // sort the rays by material index
+        sort_rays_by_material_index(thread_index);
+
+        storageBarrier();
+
+        output[ray.index] = mix(output[ray.index], linear_col, 1 / f32(nth_pass));
     }
-    
-    output[thread_index] = vec4(avg_linear_col, 1);
 }
 
+
+fn sort_rays_by_material_index(thread_index: u32) {
+    // odd even sort
+
+    let n_rays = arrayLength(&rays);
+
+    let pair_index_odd = thread_index * 2 + 1;
+    if pair_index_odd + 1 < n_rays && rays[pair_index_odd].last_material_index > rays[pair_index_odd + 1].last_material_index {
+        let t = rays[pair_index_odd];
+        rays[pair_index_odd] = rays[pair_index_odd + 1];
+        rays[pair_index_odd + 1] = t;
+    }
+
+    let pair_index_even = thread_index * 2;
+    if pair_index_even + 1 < n_rays && rays[pair_index_even].last_material_index > rays[pair_index_even + 1].last_material_index {
+        let t = rays[pair_index_even];
+        rays[pair_index_even] = rays[pair_index_even + 1];
+        rays[pair_index_even + 1] = t;
+    }
+}
 
 
 struct VertexOut {
@@ -136,22 +163,21 @@ fn triangle_intersect_t(triangle: Triangle, origin: vec3f, dir: vec3f, normal: v
 const EPSILON: f32 = 1e-4;
 const INF: f32 = pow(2, 126);
 
-fn triangle_intersect_barycentric(triangle: Triangle, intersection_pt: vec3f) -> vec2f {
+fn triangle_intersect_barycentric(triangle: Triangle, intersection_pt: vec3f, dir: vec3f) -> vec2f {
     let ba = triangle.b - triangle.a;
     let ca = triangle.c - triangle.a;
     let solution = intersection_pt - triangle.a;
-    let dummy = cross(ba, ca); // arbitrary nonzero column vector to get a square matrix for Cramer's rule
 
     // use Cramer's rule to solve for barycentric coordinates
 
-    let coeffs_determinant = determinant(mat3x3(ba, ca, dummy));
+    let coeffs_determinant = determinant(mat3x3(ba, ca, dir));
     if coeffs_determinant == 0 {
         return vec2f(INF, INF);
     }
 
     return vec2f(
-        determinant(mat3x3(solution, ca, dummy)) / coeffs_determinant,
-        determinant(mat3x3(ba, solution, dummy)) / coeffs_determinant,
+        determinant(mat3x3(solution, ca, dir)) / coeffs_determinant,
+        determinant(mat3x3(ba, solution, dir)) / coeffs_determinant,
     );
 }
 
@@ -171,7 +197,7 @@ fn triangle_distance(triangle: Triangle, origin: vec3f, dir: vec3f) -> DistanceR
 
     let intersection_pt = origin + dir * t;
 
-    let barycentric = triangle_intersect_barycentric(triangle, intersection_pt);
+    let barycentric = triangle_intersect_barycentric(triangle, intersection_pt, dir);
     if barycentric.x < 0 || barycentric.y < 0 || barycentric.x + barycentric.y > 1 {
         return DistanceResult(INF, normal, intersection_pt);
     }
@@ -183,24 +209,28 @@ struct IntersectionResult {
     closest_obj_index: u32,
     found: bool,
     intersection: DistanceResult,
+    material_index: u32,
 }
 
 fn intersect(origin: vec3f, dir: vec3f) -> IntersectionResult {
     var found = false;
     var closest_obj_index = 0u;
     var min_result = DistanceResult(INF, vec3f(0, 0, 0), vec3f(0, 0, 0));
+    var closest_material_index = 0u;
 
     for (var i = 0u; i < arrayLength(&triangles); i++) {
-        let result = triangle_distance(triangles[i], origin, dir);
+        let triangle = triangles[i];
+        let result = triangle_distance(triangle, origin, dir);
 
         if result.distance < min_result.distance {
             found = true;
             closest_obj_index = i;
             min_result = result;
+            closest_material_index = triangle.material_index;
         }
     }
     
-    return IntersectionResult(closest_obj_index, found, min_result);
+    return IntersectionResult(closest_obj_index, found, min_result, closest_material_index);
 }
 
 fn xxhash32_3d(p: vec3u) -> u32 {
@@ -261,28 +291,28 @@ fn env(dir: vec3f) -> vec3f {
     // return vec3f(0.97, 0.95, 1);
 }
 
-fn step_sample(bounce: Bounce) -> Bounce {
-    let result = intersect(bounce.origin, bounce.dir);
+fn step_sample(ray: Ray) -> Ray {
+    let result = intersect(ray.origin, ray.dir);
 
     if !result.found {
-        return terminated_bounce_with_col(bounce.linear_col * env(bounce.dir));
+        return terminated_ray_with_col(ray.linear_col * env(ray.dir), ray.index, result.material_index);
     }
 
-    let material = materials[triangles[result.closest_obj_index].material_index];
+    let material = materials[result.material_index];
     if material.emissive.a > 0 {
-        return terminated_bounce_with_col(bounce.linear_col * material.emissive.rgb);
+        return terminated_ray_with_col(ray.linear_col * material.emissive.rgb, ray.index, result.material_index);
     }
 
 
     let new_origin = result.intersection.point;
     // current_dir = reflect(current_dir, result.intersection.normal);
-    let new_dir = diffuse_reflect(result.intersection.normal, bounce.dir, bounce.seed);
+    let new_dir = diffuse_reflect(result.intersection.normal, ray.dir, ray.seed);
 
-    return Bounce(new_origin, new_dir, bounce.seed, bounce.linear_col * material.diffuse.rgb, 0);
+    return Ray(new_origin, new_dir, result.material_index, ray.seed, ray.index, ray.linear_col * material.diffuse.rgb, 0);
 }
 
 
-fn set_up_sample(uv: vec2f, nth_pass: u32) -> Bounce {
+fn set_up_sample(uv: vec2f, nth_pass: u32, index: u32) -> Ray {
     let uniform_samples = rand33(vec3f(uv, f32(nth_pass))).xy;
 
 
@@ -293,7 +323,7 @@ fn set_up_sample(uv: vec2f, nth_pass: u32) -> Bounce {
 
     let adjusted_uv = uv + (vec2f(f32(grid_x), f32(grid_y)) - 0.5 + uniform_samples) / f32(SUPERSAMPLE_RATE) / (resolution / 2);
 
-    return Bounce(vec3f(0, 0, 0), get_dir(adjusted_uv), vec3f(adjusted_uv, f32(nth_pass)), vec3f(1, 1, 1), 0);
+    return Ray(vec3f(0, 0, 0), get_dir(adjusted_uv), 0, vec3f(adjusted_uv, f32(nth_pass)), index, vec3f(1, 1, 1), 0);
 }
 
 fn get_dir(uv: vec2f) -> vec3f {
@@ -301,7 +331,7 @@ fn get_dir(uv: vec2f) -> vec3f {
 
     // for lens-like rendering, the UV radius determines the angle change along a sphere
     // the UV angle is just used to rotate the direction vector into place, using the matrix
-    let sphere_angle = length(uv);
+    let sphere_angle = length(uv) * 0.5;
     let uv_angle = atan2(uv.y, uv.x);
 
     let dir = mat3x3(
