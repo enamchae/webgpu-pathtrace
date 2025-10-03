@@ -2,19 +2,16 @@
 import Canvas from "./Canvas.svelte";
     import Overlays from "./Overlays.svelte";
 
-let nthPass = $state(0);
-let lastRenderElapsedTime = $state(0);
+let status = $state("");
 </script>
 
 <main>
     <Canvas
-        bind:nthPass
-        bind:lastRenderElapsedTime
+        bind:status
     />
 
     <Overlays
-        {nthPass}
-        {lastRenderElapsedTime}
+        {status}
     />
 </main>
 

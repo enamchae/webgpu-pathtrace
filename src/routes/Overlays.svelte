@@ -1,16 +1,13 @@
 <script lang="ts">
 let {
-    nthPass,
-    lastRenderElapsedTime,
+    status,
 }: {
-    nthPass: number,
-    lastRenderElapsedTime: number,
+    status: string,
 } = $props();
 </script>
 
 <div class="overlays">
-    <div>Sample #{nthPass}</div>
-    <div>Rendered in {lastRenderElapsedTime / 1000} s</div>
+    <div>{status}</div>
 </div>
 
 <style lang="scss">
