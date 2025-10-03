@@ -3,6 +3,7 @@ import { onMount, tick } from "svelte";
 import renderShaderSrc from "./render.wgsl?raw";
 import { Quad } from "./Quad.svelte";
 import { Vec3 } from "./Vec3.svelte";
+    import { command } from "$app/server";
 
 let {
     nthPass = $bindable(),
@@ -23,8 +24,13 @@ let materialsBuffer: GPUBuffer;
 let bindGroupLayout: GPUBindGroupLayout;
 let bindGroup: GPUBindGroup;
 let renderPipeline: GPURenderPipeline;
-let computeSamplePipeline: GPUComputePipeline;
-let resolutionBuffer: GPUBuffer;
+let computeFullPipeline: GPUComputePipeline;
+let computeBeginPassPipeline: GPUComputePipeline;
+let computeBouncePipeline: GPUComputePipeline;
+let computeFinishPassPipeline: GPUComputePipeline;
+let uniformsBuffer: GPUBuffer;
+let storedBuffer: GPUBuffer;
+let commandBuffer: GPUCommandBuffer;
 
 const gpuReady = Promise.withResolvers<void>();
 
@@ -181,9 +187,15 @@ onMount(async () => {
     device.queue.writeBuffer(materialsBuffer, 0, materials);
 
 
-    resolutionBuffer = device.createBuffer({
+    uniformsBuffer = device.createBuffer({
         size: 8,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+
+    storedBuffer = device.createBuffer({
+        size: 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
 
@@ -229,6 +241,14 @@ onMount(async () => {
                     type: "storage",
                 },
             },
+
+            {
+                binding: 5,
+                visibility: GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
+                buffer: {
+                    type: "storage",
+                },
+            },
         ],
     });
 
@@ -255,7 +275,7 @@ onMount(async () => {
 
         fragment: {
             module: renderShaderModule,
-            entryPoint: "frag",
+            entryPoint: "frag_from_output",
             targets: [
                 {
                     format,
@@ -273,7 +293,7 @@ onMount(async () => {
     });
 
 
-    computeSamplePipeline = device.createComputePipeline({
+    computeFullPipeline = device.createComputePipeline({
         layout: device.createPipelineLayout({
             bindGroupLayouts: [bindGroupLayout],
         }),
@@ -285,12 +305,48 @@ onMount(async () => {
     });
 
 
+    computeBeginPassPipeline = device.createComputePipeline({
+        layout: device.createPipelineLayout({
+            bindGroupLayouts: [bindGroupLayout],
+        }),
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_begin_pass",
+        },
+    });
+
+
+    computeBouncePipeline = device.createComputePipeline({
+        layout: device.createPipelineLayout({
+            bindGroupLayouts: [bindGroupLayout],
+        }),
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_bounce",
+        },
+    });
+
+
+    computeFinishPassPipeline = device.createComputePipeline({
+        layout: device.createPipelineLayout({
+            bindGroupLayouts: [bindGroupLayout],
+        }),
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_finish_pass",
+        },
+    });
+
+
     gpuReady.resolve();
 });
 
 
 const hardRerender = async (nextWidth: number, nextHeight: number) => {
-    device.queue.writeBuffer(resolutionBuffer, 0, new Float32Array([width, height]));
+    device.queue.writeBuffer(uniformsBuffer, 0, new Uint32Array([width, height]));
 
     const N_ELEMENTS = nextWidth * nextHeight;
 
@@ -326,7 +382,7 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
             {
                 binding: 2,
                 resource: {
-                    buffer: resolutionBuffer,
+                    buffer: uniformsBuffer,
                 },
             },
 
@@ -343,24 +399,55 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
                     buffer: raysBuffer,
                 },
             },
+
+            {
+                binding: 5,
+                resource: {
+                    buffer: storedBuffer,
+                },
+            },
         ],
     });
 
-    await rerender(nextWidth, nextHeight);
-};
-
-const rerender = async (nextWidth: number, nextHeight: number) => {
-    let start = performance.now();
+    
 
         
     const commandEncoder = device.createCommandEncoder();
 
+// const computePassEncoder = commandEncoder.beginComputePass();
+// computePassEncoder.setBindGroup(0, bindGroup);
+// computePassEncoder.setPipeline(computeFullPipeline);
+// computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
+// computePassEncoder.end();
+
     const computePassEncoder = commandEncoder.beginComputePass();
-    computePassEncoder.setPipeline(computeSamplePipeline);
     computePassEncoder.setBindGroup(0, bindGroup);
-    computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
+
+    const nWorkGroups = Math.ceil(nextWidth * nextHeight / 256);
+
+    for (let nPass = 0; nPass < 256; nPass++) {
+        computePassEncoder.setPipeline(computeBeginPassPipeline);
+        computePassEncoder.dispatchWorkgroups(nWorkGroups);
+
+        computePassEncoder.setPipeline(computeBouncePipeline);
+        for (let nBounce = 0; nBounce < 8; nBounce++) {
+            computePassEncoder.dispatchWorkgroups(nWorkGroups);
+        }
+
+        computePassEncoder.setPipeline(computeFinishPassPipeline);
+        computePassEncoder.dispatchWorkgroups(nWorkGroups);
+    }
+
     computePassEncoder.end();
 
+    addRenderPass(commandEncoder);
+
+    commandBuffer = commandEncoder.finish();
+
+    await rerender(nextWidth, nextHeight);
+};
+
+const addRenderPass = (commandEncoder: GPUCommandEncoder) => {
     const renderPassEncoder = commandEncoder.beginRenderPass({
         colorAttachments: [
             {
@@ -377,15 +464,19 @@ const rerender = async (nextWidth: number, nextHeight: number) => {
         ],
     });
 
-    renderPassEncoder.setPipeline(renderPipeline);
     renderPassEncoder.setBindGroup(0, bindGroup);
     renderPassEncoder.setVertexBuffer(0, vertBuffer);
+    renderPassEncoder.setPipeline(renderPipeline);
     renderPassEncoder.draw(6);
     renderPassEncoder.end();
+};
 
-    device.queue.submit([
-        commandEncoder.finish(),
-    ]);
+const rerender = async (nextWidth: number, nextHeight: number) => {
+    let start = performance.now();
+        
+    
+    device.queue.writeBuffer(storedBuffer, 0, new Uint32Array([1]));
+    device.queue.submit([commandBuffer]);
 
     device.queue.onSubmittedWorkDone().then(() => {
         lastRenderElapsedTime = performance.now() - start;

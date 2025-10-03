@@ -5,7 +5,8 @@ const PI_4 = PI / 4;
 const SQRT_1_3 = 1 / sqrt(3);
 
 const SUPERSAMPLE_RATE = 16u;
-const NTH_SAMPLE = 1u;
+const WORKGROUP_SIZE = 256u;
+const N_MAX_BOUNCES = 8u;
 
 
 struct Triangle {
@@ -31,7 +32,7 @@ var<storage, read> materials: array<Material>;
 
 @group(0)
 @binding(2)
-var<uniform> resolution: vec2f;
+var<uniform> uniforms: Uniforms;
 
 @group(0)
 @binding(3)
@@ -40,6 +41,11 @@ var<storage, read_write> output: array<vec3f>;
 @group(0)
 @binding(4)
 var<storage, read_write> rays: array<Ray>;
+
+@group(0)
+@binding(5)
+var<storage, read_write> stored: Stored;
+
 
 struct Ray {
     origin: vec3f,
@@ -51,69 +57,121 @@ struct Ray {
     terminated: u32, // cannot use bool in storage
 }
 
+struct Uniforms {
+    resolution: vec2u,
+}
+
+struct Stored {
+    nth_pass: u32,
+}
+
 fn terminated_ray_with_col(linear_col: vec3f, index: u32, material_index: u32) -> Ray {
     return Ray(vec3f(0, 0, 0), vec3f(0, 0, 0), material_index, vec3f(0, 0, 0), index, linear_col, 1);
 }
 
 
 @compute
-@workgroup_size(256)
+@workgroup_size(WORKGROUP_SIZE)
 fn comp(
     @builtin(global_invocation_id) global_id: vec3u,
-    @builtin(local_invocation_id) local_id: vec3u,
 ) {
-    let rx = u32(resolution.x);
-    let ry = u32(resolution.y);
-
-    if global_id.x >= rx * ry { return; }
-
     let thread_index = global_id.x;
-
-    let y = thread_index / rx;
-    let x = thread_index - y * rx;
+    if thread_index >= uniforms.resolution.x * uniforms.resolution.y { return; }
 
 
-    var aspect: vec2f;
-    if resolution.y > resolution.x {
-        aspect = vec2f(1, resolution.y / resolution.x);
-    } else {
-        aspect = vec2f(resolution.x / resolution.y, 1);
-    }
-
-
-    var uv = vec2f(f32(x), f32(y)) / resolution * 2 - 1;
-    uv.y *= -1;
+    let uv = get_square_centered_uv(thread_index);
 
     var avg_linear_col = vec3f(0, 0, 0);
-
-    for (var nth_pass = 1u; nth_pass <= 2 * SUPERSAMPLE_RATE * SUPERSAMPLE_RATE; nth_pass++) {
-        var ray = set_up_sample(uv * aspect, nth_pass, thread_index);
+    for (var nth_pass = 1u; nth_pass <= SUPERSAMPLE_RATE * SUPERSAMPLE_RATE; nth_pass++) {
+        var ray = set_up_sample(uv, nth_pass, thread_index);
         var linear_col = vec3f(0, 0, 0);
 
-        for (var depth = 0u; depth < 8; depth++) {
+        for (var depth = 0u; depth < N_MAX_BOUNCES; depth++) {
             if ray.terminated == 1 {
                 linear_col = ray.linear_col;
                 break;
             }
+            
             ray = step_sample(ray);
         }
+        
+        avg_linear_col = mix(avg_linear_col, linear_col, 1 / f32(nth_pass));
+    }
+    output[thread_index] = avg_linear_col;
+}
 
-        storageBarrier();
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_begin_pass(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    if thread_index >= uniforms.resolution.x * uniforms.resolution.y { return; }
 
-        // sort the rays by material index
-        sort_rays_by_material_index(thread_index);
+    let uv = get_square_centered_uv(thread_index);
+    rays[thread_index] = set_up_sample(uv, stored.nth_pass, thread_index);
+}
 
-        storageBarrier();
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_bounce(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    if thread_index >= uniforms.resolution.x * uniforms.resolution.y { return; }
+    
+    let ray = rays[thread_index];
+    if ray.terminated == 1 { return; }
 
-        output[ray.index] = mix(output[ray.index], linear_col, 1 / f32(nth_pass));
+    rays[thread_index] = step_sample(ray);
+}
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_finish_pass(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    if thread_index >= uniforms.resolution.x * uniforms.resolution.y { return; }
+
+    let ray = rays[thread_index];
+    let linear_col = ray.linear_col * f32(ray.terminated);
+    output[thread_index] = mix(output[thread_index], linear_col, 1 / f32(stored.nth_pass));
+
+    if thread_index == 0 {
+        stored.nth_pass += 1;
     }
 }
 
+fn get_aspect_vec() -> vec2f {
+    if uniforms.resolution.y > uniforms.resolution.x {
+        return vec2f(1, f32(uniforms.resolution.y) / f32(uniforms.resolution.x));
+    } else {
+        return vec2f(f32(uniforms.resolution.x) / f32(uniforms.resolution.y), 1);
+    }
+}
 
-fn sort_rays_by_material_index(thread_index: u32) {
+fn get_square_centered_uv(thread_index: u32) -> vec2f {
+    let y = thread_index / uniforms.resolution.x;
+    let x = thread_index - y * uniforms.resolution.x;
+
+    var uv = vec2f(f32(x), f32(y)) / vec2f(uniforms.resolution) * 2 - 1;
+    uv.y *= -1;
+
+    return uv * get_aspect_vec();
+}
+
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_sort_rays_by_material_index(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let n_rays = uniforms.resolution.x * uniforms.resolution.y;
+    let thread_index = global_id.x;
+
+
     // odd even sort
-
-    let n_rays = arrayLength(&rays);
 
     let pair_index_odd = thread_index * 2 + 1;
     if pair_index_odd + 1 < n_rays && rays[pair_index_odd].last_material_index > rays[pair_index_odd + 1].last_material_index {
@@ -121,6 +179,8 @@ fn sort_rays_by_material_index(thread_index: u32) {
         rays[pair_index_odd] = rays[pair_index_odd + 1];
         rays[pair_index_odd + 1] = t;
     }
+
+    storageBarrier();
 
     let pair_index_even = thread_index * 2;
     if pair_index_even + 1 < n_rays && rays[pair_index_even].last_material_index > rays[pair_index_even + 1].last_material_index {
@@ -244,7 +304,11 @@ fn xxhash32_3d(p: vec3u) -> u32 {
     h32 = p3 * (h32^(h32 >> 13));
     return h32^(h32 >> 16);
 }
-fn rand33(f: vec3f) -> vec3f { return vec3f(xxhash32_3d(bitcast<vec3u>(f))) / f32(0xffffffff); }
+fn rand33(f: vec3f) -> vec3f {
+    let hash = f32(xxhash32_3d(bitcast<vec3u>(f)));
+    
+    return vec3f(hash, hash, hash) / f32(0xffffffff);
+}
 
 fn sample_cosine_weighted_hemisphere(uniform_samples: vec2f, normal: vec3f) -> vec3f {
     // sample a point on the unit sphere's top half
@@ -321,7 +385,7 @@ fn set_up_sample(uv: vec2f, nth_pass: u32, index: u32) -> Ray {
     let grid_y = nth_pass / SUPERSAMPLE_RATE;
 
 
-    let adjusted_uv = uv + (vec2f(f32(grid_x), f32(grid_y)) - 0.5 + uniform_samples) / f32(SUPERSAMPLE_RATE) / (resolution / 2);
+    let adjusted_uv = uv + (vec2f(f32(grid_x), f32(grid_y)) - 0.5 + uniform_samples) / f32(SUPERSAMPLE_RATE) / (vec2f(uniforms.resolution) / 2);
 
     return Ray(vec3f(0, 0, 0), get_dir(adjusted_uv), 0, vec3f(adjusted_uv, f32(nth_pass)), index, vec3f(1, 1, 1), 0);
 }
@@ -344,13 +408,10 @@ fn get_dir(uv: vec2f) -> vec3f {
 }
 
 @fragment
-fn frag(
+fn frag_from_output(
     data: VertexOut,
 ) -> @location(0) vec4f {
-    let rx = u32(resolution.x);
-    let ry = u32(resolution.y);
-
-    let linear_col = output[u32(data.position.y) * rx + u32(data.position.x)];
+    let linear_col = output[u32(data.position.y) * uniforms.resolution.x + u32(data.position.x)];
 
     return vec4f(
         pow(linear_col.x, 1 / 2.2),
