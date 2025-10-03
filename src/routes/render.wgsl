@@ -40,19 +40,22 @@ var<storage, read_write> output: array<vec3f>;
 
 @group(0)
 @binding(4)
-var<storage, read_write> rays: array<Ray>;
+var<storage, read_write> intersections: array<IntersectionResult>;
 
 @group(0)
 @binding(5)
-var<storage, read_write> stored: Stored;
+var<storage, read_write> rays: array<Ray>;
 
+@group(0)
+@binding(6)
+var<storage, read_write> stored: Stored;
 
 struct Ray {
     origin: vec3f,
     dir: vec3f,
     last_material_index: u32,
     seed: vec3f,
-    index: u32,
+    thread_index: u32,
     linear_col: vec3f,
     terminated: u32, // cannot use bool in storage
 }
@@ -110,20 +113,46 @@ fn comp_begin_pass(
 
     let uv = get_square_centered_uv(thread_index);
     rays[thread_index] = set_up_sample(uv, stored.nth_pass, thread_index);
+    
+    if thread_index == 0 {
+        stored.nth_pass += 1;
+    }
 }
 
 @compute
 @workgroup_size(WORKGROUP_SIZE)
-fn comp_bounce(
+fn comp_intersect(
     @builtin(global_invocation_id) global_id: vec3u,
 ) {
     let thread_index = global_id.x;
     if thread_index >= uniforms.resolution.x * uniforms.resolution.y { return; }
     
     let ray = rays[thread_index];
+    if ray.terminated == 1 {
+        intersections[thread_index] = IntersectionResult(
+            DistanceResult(vec3f(0, 0, 0), vec3f(0, 0, 0), INF),
+            0, 0, 0, 0, thread_index,
+        );
+        return;
+    }
+
+    intersections[thread_index] = intersect(ray.origin, ray.dir, thread_index);
+}
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_shade(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    if thread_index >= uniforms.resolution.x * uniforms.resolution.y { return; }
+    
+    let result = intersections[thread_index];
+    let ray = rays[result.thread_index];
     if ray.terminated == 1 { return; }
 
-    rays[thread_index] = step_sample(ray);
+
+    rays[result.thread_index] = shade_ray(result, ray);
 }
 
 @compute
@@ -136,11 +165,7 @@ fn comp_finish_pass(
 
     let ray = rays[thread_index];
     let linear_col = ray.linear_col * f32(ray.terminated);
-    output[thread_index] = mix(output[thread_index], linear_col, 1 / f32(stored.nth_pass));
-
-    if thread_index == 0 {
-        stored.nth_pass += 1;
-    }
+    output[ray.thread_index] = mix(output[ray.thread_index], linear_col, 1 / f32(stored.nth_pass));
 }
 
 fn get_aspect_vec() -> vec2f {
@@ -164,29 +189,48 @@ fn get_square_centered_uv(thread_index: u32) -> vec2f {
 
 @compute
 @workgroup_size(WORKGROUP_SIZE)
-fn comp_sort_rays_by_material_index(
+fn comp_sort_intersections(
     @builtin(global_invocation_id) global_id: vec3u,
 ) {
-    let n_rays = uniforms.resolution.x * uniforms.resolution.y;
+    let n_intersections = uniforms.resolution.x * uniforms.resolution.y;
     let thread_index = global_id.x;
 
 
     // odd even sort
 
-    let pair_index_odd = thread_index * 2 + 1;
-    if pair_index_odd + 1 < n_rays && rays[pair_index_odd].last_material_index > rays[pair_index_odd + 1].last_material_index {
-        let t = rays[pair_index_odd];
-        rays[pair_index_odd] = rays[pair_index_odd + 1];
-        rays[pair_index_odd + 1] = t;
+    var left_intersection: IntersectionResult;
+    var right_intersection: IntersectionResult;
+
+    var pair_index = thread_index * 2 + 1;
+    if pair_index + 1 < n_intersections {
+        left_intersection = intersections[pair_index];
+        right_intersection = intersections[pair_index + 1];
+
+        var should_swap = left_intersection.terminated > right_intersection.terminated;
+        should_swap = should_swap || (left_intersection.terminated == right_intersection.terminated && left_intersection.found > right_intersection.found);
+        should_swap = should_swap || (left_intersection.terminated == right_intersection.terminated && left_intersection.found == right_intersection.found && left_intersection.material_index > right_intersection.material_index);
+
+        if should_swap {
+            intersections[pair_index] = right_intersection;
+            intersections[pair_index + 1] = left_intersection;
+        }
     }
 
     storageBarrier();
 
-    let pair_index_even = thread_index * 2;
-    if pair_index_even + 1 < n_rays && rays[pair_index_even].last_material_index > rays[pair_index_even + 1].last_material_index {
-        let t = rays[pair_index_even];
-        rays[pair_index_even] = rays[pair_index_even + 1];
-        rays[pair_index_even + 1] = t;
+    pair_index = thread_index * 2;
+    if pair_index + 1 < n_intersections {
+        left_intersection = intersections[pair_index];
+        right_intersection = intersections[pair_index + 1];
+        
+        var should_swap = left_intersection.terminated > right_intersection.terminated;
+        should_swap = should_swap || (left_intersection.terminated == right_intersection.terminated && left_intersection.found > right_intersection.found);
+        should_swap = should_swap || (left_intersection.terminated == right_intersection.terminated && left_intersection.found == right_intersection.found && left_intersection.material_index > right_intersection.material_index);
+
+        if should_swap {
+            intersections[pair_index] = right_intersection;
+            intersections[pair_index + 1] = left_intersection;
+        }
     }
 }
 
@@ -242,9 +286,9 @@ fn triangle_intersect_barycentric(triangle: Triangle, intersection_pt: vec3f, di
 }
 
 struct DistanceResult {
-    distance: f32,
     normal: vec3f,
     point: vec3f,
+    distance: f32,
 }
 
 fn triangle_distance(triangle: Triangle, origin: vec3f, dir: vec3f) -> DistanceResult {
@@ -252,30 +296,32 @@ fn triangle_distance(triangle: Triangle, origin: vec3f, dir: vec3f) -> DistanceR
 
     let t = triangle_intersect_t(triangle, origin, dir, normal);
     if t < EPSILON {
-        return DistanceResult(INF, normal, vec3f(0, 0, 0));
+        return DistanceResult(normal, vec3f(0, 0, 0), INF);
     }
 
     let intersection_pt = origin + dir * t;
 
     let barycentric = triangle_intersect_barycentric(triangle, intersection_pt, dir);
     if barycentric.x < 0 || barycentric.y < 0 || barycentric.x + barycentric.y > 1 {
-        return DistanceResult(INF, normal, intersection_pt);
+        return DistanceResult(normal, intersection_pt, INF);
     }
 
-    return DistanceResult(t, normal, intersection_pt);
+    return DistanceResult(normal, intersection_pt, t);
 }
 
 struct IntersectionResult {
-    closest_obj_index: u32,
-    found: bool,
     intersection: DistanceResult,
+    closest_obj_index: u32,
     material_index: u32,
+    found: u32,
+    terminated: u32,
+    thread_index: u32,
 }
 
-fn intersect(origin: vec3f, dir: vec3f) -> IntersectionResult {
-    var found = false;
+fn intersect(origin: vec3f, dir: vec3f, thread_index: u32) -> IntersectionResult {
+    var found = 0u;
     var closest_obj_index = 0u;
-    var min_result = DistanceResult(INF, vec3f(0, 0, 0), vec3f(0, 0, 0));
+    var min_result = DistanceResult(vec3f(0, 0, 0), vec3f(0, 0, 0), INF);
     var closest_material_index = 0u;
 
     for (var i = 0u; i < arrayLength(&triangles); i++) {
@@ -283,14 +329,14 @@ fn intersect(origin: vec3f, dir: vec3f) -> IntersectionResult {
         let result = triangle_distance(triangle, origin, dir);
 
         if result.distance < min_result.distance {
-            found = true;
+            found = 1;
             closest_obj_index = i;
             min_result = result;
             closest_material_index = triangle.material_index;
         }
     }
     
-    return IntersectionResult(closest_obj_index, found, min_result, closest_material_index);
+    return IntersectionResult(min_result, closest_obj_index, closest_material_index, found, 0, thread_index);
 }
 
 fn xxhash32_3d(p: vec3u) -> u32 {
@@ -355,16 +401,14 @@ fn env(dir: vec3f) -> vec3f {
     // return vec3f(0.97, 0.95, 1);
 }
 
-fn step_sample(ray: Ray) -> Ray {
-    let result = intersect(ray.origin, ray.dir);
-
-    if !result.found {
-        return terminated_ray_with_col(ray.linear_col * env(ray.dir), ray.index, result.material_index);
+fn shade_ray(result: IntersectionResult, ray: Ray) -> Ray {
+    if result.found == 0 {
+        return terminated_ray_with_col(ray.linear_col * env(ray.dir), ray.thread_index, result.material_index);
     }
 
     let material = materials[result.material_index];
     if material.emissive.a > 0 {
-        return terminated_ray_with_col(ray.linear_col * material.emissive.rgb, ray.index, result.material_index);
+        return terminated_ray_with_col(ray.linear_col * material.emissive.rgb, ray.thread_index, result.material_index);
     }
 
 
@@ -372,7 +416,12 @@ fn step_sample(ray: Ray) -> Ray {
     // current_dir = reflect(current_dir, result.intersection.normal);
     let new_dir = diffuse_reflect(result.intersection.normal, ray.dir, ray.seed);
 
-    return Ray(new_origin, new_dir, result.material_index, ray.seed, ray.index, ray.linear_col * material.diffuse.rgb, 0);
+    return Ray(new_origin, new_dir, result.material_index, ray.seed, ray.thread_index, ray.linear_col * material.diffuse.rgb, 0);
+}
+
+fn step_sample(ray: Ray) -> Ray {
+    let result = intersect(ray.origin, ray.dir, ray.thread_index);
+    return shade_ray(result, ray);
 }
 
 

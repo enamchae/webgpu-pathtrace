@@ -26,8 +26,10 @@ let bindGroup: GPUBindGroup;
 let renderPipeline: GPURenderPipeline;
 let computeFullPipeline: GPUComputePipeline;
 let computeBeginPassPipeline: GPUComputePipeline;
-let computeBouncePipeline: GPUComputePipeline;
+let computeIntersectPipeline: GPUComputePipeline;
+let computeShadePipeline: GPUComputePipeline;
 let computeFinishPassPipeline: GPUComputePipeline;
+let computeSortIntersectionsPipeline: GPUComputePipeline;
 let uniformsBuffer: GPUBuffer;
 let storedBuffer: GPUBuffer;
 let commandBuffer: GPUCommandBuffer;
@@ -249,6 +251,14 @@ onMount(async () => {
                     type: "storage",
                 },
             },
+
+            {
+                binding: 6,
+                visibility: GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
+                buffer: {
+                    type: "storage",
+                },
+            },
         ],
     });
 
@@ -317,14 +327,26 @@ onMount(async () => {
     });
 
 
-    computeBouncePipeline = device.createComputePipeline({
+    computeIntersectPipeline = device.createComputePipeline({
         layout: device.createPipelineLayout({
             bindGroupLayouts: [bindGroupLayout],
         }),
 
         compute: {
             module: renderShaderModule,
-            entryPoint: "comp_bounce",
+            entryPoint: "comp_intersect",
+        },
+    });
+
+
+    computeShadePipeline = device.createComputePipeline({
+        layout: device.createPipelineLayout({
+            bindGroupLayouts: [bindGroupLayout],
+        }),
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_shade",
         },
     });
 
@@ -337,6 +359,18 @@ onMount(async () => {
         compute: {
             module: renderShaderModule,
             entryPoint: "comp_finish_pass",
+        },
+    });
+
+
+    computeSortIntersectionsPipeline = device.createComputePipeline({
+        layout: device.createPipelineLayout({
+            bindGroupLayouts: [bindGroupLayout],
+        }),
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_sort_intersections",
         },
     });
 
@@ -355,6 +389,11 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
+
+    const intersectionsBuffer = device.createBuffer({
+        size: N_ELEMENTS * 64,
+        usage: GPUBufferUsage.STORAGE,
+    });
 
     const raysBuffer = device.createBuffer({
         size: N_ELEMENTS * 64,
@@ -396,12 +435,19 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
             {
                 binding: 4,
                 resource: {
-                    buffer: raysBuffer,
+                    buffer: intersectionsBuffer,
                 },
             },
 
             {
                 binding: 5,
+                resource: {
+                    buffer: raysBuffer,
+                },
+            },
+
+            {
+                binding: 6,
                 resource: {
                     buffer: storedBuffer,
                 },
@@ -414,31 +460,40 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
         
     const commandEncoder = device.createCommandEncoder();
 
-// const computePassEncoder = commandEncoder.beginComputePass();
-// computePassEncoder.setBindGroup(0, bindGroup);
-// computePassEncoder.setPipeline(computeFullPipeline);
-// computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
-// computePassEncoder.end();
-
     const computePassEncoder = commandEncoder.beginComputePass();
     computePassEncoder.setBindGroup(0, bindGroup);
-
-    const nWorkGroups = Math.ceil(nextWidth * nextHeight / 256);
-
-    for (let nPass = 0; nPass < 256; nPass++) {
-        computePassEncoder.setPipeline(computeBeginPassPipeline);
-        computePassEncoder.dispatchWorkgroups(nWorkGroups);
-
-        computePassEncoder.setPipeline(computeBouncePipeline);
-        for (let nBounce = 0; nBounce < 8; nBounce++) {
-            computePassEncoder.dispatchWorkgroups(nWorkGroups);
-        }
-
-        computePassEncoder.setPipeline(computeFinishPassPipeline);
-        computePassEncoder.dispatchWorkgroups(nWorkGroups);
-    }
-
+    computePassEncoder.setPipeline(computeFullPipeline);
+    computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
     computePassEncoder.end();
+
+    // const computePassEncoder = commandEncoder.beginComputePass();
+    // computePassEncoder.setBindGroup(0, bindGroup);
+
+    // const nWorkGroups = Math.ceil(nextWidth * nextHeight / 256);
+
+    // for (let nPass = 0; nPass < 1; nPass++) {
+    //     computePassEncoder.setPipeline(computeBeginPassPipeline);
+    //     computePassEncoder.dispatchWorkgroups(nWorkGroups);
+
+    //     for (let nBounce = 0; nBounce < 8; nBounce++) {
+    //         computePassEncoder.setPipeline(computeIntersectPipeline);
+    //         computePassEncoder.dispatchWorkgroups(nWorkGroups);
+
+    //         computePassEncoder.setPipeline(computeSortIntersectionsPipeline);
+    //         for (let nIter = 0; nIter < 96; nIter++) {
+    //             computePassEncoder.dispatchWorkgroups(nWorkGroups);
+    //         }
+
+    //         computePassEncoder.setPipeline(computeShadePipeline);
+    //         computePassEncoder.dispatchWorkgroups(nWorkGroups);
+    //     }
+
+
+    //     computePassEncoder.setPipeline(computeFinishPassPipeline);
+    //     computePassEncoder.dispatchWorkgroups(nWorkGroups);
+    // }
+
+    // computePassEncoder.end();
 
     addRenderPass(commandEncoder);
 
@@ -475,7 +530,7 @@ const rerender = async (nextWidth: number, nextHeight: number) => {
     let start = performance.now();
         
     
-    device.queue.writeBuffer(storedBuffer, 0, new Uint32Array([1]));
+    device.queue.writeBuffer(storedBuffer, 0, new Uint32Array([0]));
     device.queue.submit([commandBuffer]);
 
     device.queue.onSubmittedWorkDone().then(() => {
