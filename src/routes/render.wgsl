@@ -4,7 +4,7 @@ const PI_2 = PI / 2;
 const PI_4 = PI / 4;
 const SQRT_1_3 = 1 / sqrt(3);
 
-const SUPERSAMPLE_RATE = 16u;
+const SUPERSAMPLE_RATE = 8u;
 const WORKGROUP_SIZE = 256u;
 const N_MAX_BOUNCES = 8u;
 
@@ -24,6 +24,7 @@ var<storage, read> triangles: array<Triangle>;
 struct Material {
     diffuse: vec4f,
     emissive: vec4f,
+    roughness: f32,
 }
 
 @group(0)
@@ -384,20 +385,13 @@ fn sample_cosine_weighted_hemisphere(uniform_samples: vec2f, normal: vec3f) -> v
 fn diffuse_reflect(normal: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
     let uniform_samples = rand33(seed);
 
-    var new_normal: vec3f;
-    if dot(dir, normal) > 0 {
-        new_normal = -normal;
-    } else {
-        new_normal = normal;
-    }
-
-    let hemisphere_point = sample_cosine_weighted_hemisphere(uniform_samples.xy, new_normal);
+    let hemisphere_point = sample_cosine_weighted_hemisphere(uniform_samples.xy, normal * -sign(dot(dir, normal)));
 
     return hemisphere_point;
 }
 
 fn env(dir: vec3f) -> vec3f {
-    return vec3f(0.3, 0.45, 0.5) * (2 * dir + 1);
+    return vec3f(0.3, 0.45, 0.5) + (0.5 * dir);
     // return vec3f(0.97, 0.95, 1);
 }
 
@@ -406,6 +400,7 @@ fn shade_ray(result: IntersectionResult, ray: Ray) -> Ray {
         return terminated_ray_with_col(ray.linear_col * env(ray.dir), ray.thread_index, result.material_index);
     }
 
+    let uniform_samples = rand33(ray.seed + 0.1);
     let material = materials[result.material_index];
     if material.emissive.a > 0 {
         return terminated_ray_with_col(ray.linear_col * material.emissive.rgb, ray.thread_index, result.material_index);
@@ -413,8 +408,20 @@ fn shade_ray(result: IntersectionResult, ray: Ray) -> Ray {
 
 
     let new_origin = result.intersection.point;
-    // current_dir = reflect(current_dir, result.intersection.normal);
-    let new_dir = diffuse_reflect(result.intersection.normal, ray.dir, ray.seed);
+    var new_dir: vec3f;
+    if uniform_samples.y < material.diffuse.a {
+        if uniform_samples.x < material.roughness {
+            new_dir = diffuse_reflect(result.intersection.normal, ray.dir, ray.seed);
+        } else {
+            new_dir = reflect(ray.dir, result.intersection.normal);
+        }
+    } else {
+        if uniform_samples.x < material.roughness {
+            new_dir = diffuse_reflect(-result.intersection.normal, -ray.dir, ray.seed);
+        } else {
+            new_dir = refract(ray.dir, result.intersection.normal, 1.35);
+        }
+    }
 
     return Ray(new_origin, new_dir, result.material_index, ray.seed, ray.thread_index, ray.linear_col * material.diffuse.rgb, 0);
 }
