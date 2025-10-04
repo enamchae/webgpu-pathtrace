@@ -94,6 +94,7 @@ onMount(async () => {
     status = "loading scene file";
 
     const gltf = await new Promise((resolve, reject) => new GLTFLoader().load("/icosphere.glb", resolve));
+    console.log(gltf);
 
     let nBytes = 0;
     for (const child of gltf.scene.children) {
@@ -112,7 +113,7 @@ onMount(async () => {
             new Float32Array(triangles, offset).set(pos.slice(3 * index[i], 3 * index[i] + 3));
             new Float32Array(triangles, offset + 16).set(pos.slice(3 * index[i + 1], 3 * index[i + 1] + 3));
             new Float32Array(triangles, offset + 32).set(pos.slice(3 * index[i + 2], 3 * index[i + 2] + 3));
-            new Uint32Array(triangles, offset + 12).set([1]);
+            new Uint32Array(triangles, offset + 12).set([0]);
 
             offset += 48;
         }

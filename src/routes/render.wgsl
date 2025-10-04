@@ -4,9 +4,9 @@ const PI_2 = PI / 2;
 const PI_4 = PI / 4;
 const SQRT_1_3 = 1 / sqrt(3);
 
-const SUPERSAMPLE_RATE = 8u;
+const SUPERSAMPLE_RATE = 16u;
 const WORKGROUP_SIZE = 256u;
-const N_MAX_BOUNCES = 8u;
+const N_MAX_BOUNCES = 19u;
 
 
 struct Triangle {
@@ -273,16 +273,18 @@ fn triangle_intersect_barycentric(triangle: Triangle, intersection_pt: vec3f, di
     let ca = triangle.c - triangle.a;
     let solution = intersection_pt - triangle.a;
 
+    let dummy = cross(ba, ca);
+
     // use Cramer's rule to solve for barycentric coordinates
 
-    let coeffs_determinant = determinant(mat3x3(ba, ca, dir));
+    let coeffs_determinant = determinant(mat3x3(ba, ca, dummy));
     if coeffs_determinant == 0 {
         return vec2f(INF, INF);
     }
 
     return vec2f(
-        determinant(mat3x3(solution, ca, dir)) / coeffs_determinant,
-        determinant(mat3x3(ba, solution, dir)) / coeffs_determinant,
+        determinant(mat3x3(solution, ca, dummy)) / coeffs_determinant,
+        determinant(mat3x3(ba, solution, dummy)) / coeffs_determinant,
     );
 }
 
