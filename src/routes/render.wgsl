@@ -5,7 +5,6 @@ const PI_4 = PI / 4;
 const SQRT_1_3 = 1 / sqrt(3);
 
 const WORKGROUP_SIZE = 256u;
-const N_MAX_BOUNCES = 19u;
 
 
 struct Triangle {
@@ -64,6 +63,8 @@ struct Uniforms {
     resolution: vec2u,
     nth_pass: u32,
     supersample_rate: u32,
+    n_samples_per_grid_cell: u32,
+    n_max_bounces: u32,
 }
 
 struct Stored {
@@ -87,11 +88,11 @@ fn comp_full(
     let uv = get_square_centered_uv(thread_index);
 
     var avg_linear_col = vec3f(0, 0, 0);
-    for (var nth_pass = 1u; nth_pass <= uniforms.supersample_rate * uniforms.supersample_rate; nth_pass++) {
+    for (var nth_pass = 1u; nth_pass <= uniforms.supersample_rate * uniforms.supersample_rate * uniforms.n_samples_per_grid_cell; nth_pass++) {
         var ray = set_up_sample(uv, nth_pass, thread_index);
         var linear_col = vec3f(0, 0, 0);
 
-        for (var depth = 0u; depth < N_MAX_BOUNCES; depth++) {
+        for (var depth = 0u; depth < uniforms.n_max_bounces; depth++) {
             if ray.terminated == 1 {
                 linear_col = ray.linear_col;
                 break;
@@ -122,7 +123,7 @@ fn comp_single_pass(
     var ray = set_up_sample(uv, nth_pass, thread_index);
     var linear_col = vec3f(0, 0, 0);
 
-    for (var depth = 0u; depth < N_MAX_BOUNCES; depth++) {
+    for (var depth = 0u; depth < uniforms.n_max_bounces; depth++) {
         if ray.terminated == 1 {
             linear_col = ray.linear_col;
             break;

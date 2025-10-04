@@ -1,6 +1,6 @@
 <script lang="ts">
     import Separator from "./Separator.svelte";
-    import { RenderMethod, type Store } from "./Store.svelte";
+    import { RenderTiming, type Store } from "./Store.svelte";
 
 let {
     status,
@@ -22,15 +22,15 @@ let {
 
     <div class="panel">
         <div class="col">
-            <b>Render method</b>
+            <b>Render timing</b>
 
             <div>
                 <label>
                     <input
                         type="radio"
                         name="render-method"
-                        value={RenderMethod.afterEverySample}
-                        bind:group={store.renderMethod}
+                        value={RenderTiming.afterEverySample}
+                        bind:group={store.renderTiming}
                     />
 
                     after every sample
@@ -42,8 +42,8 @@ let {
                     <input
                         type="radio"
                         name="render-method"
-                        value={RenderMethod.afterAllSamples}
-                        bind:group={store.renderMethod}
+                        value={RenderTiming.afterAllSamples}
+                        bind:group={store.renderTiming}
                     />
 
                     after all samples
@@ -54,10 +54,40 @@ let {
         <Separator />
 
         <div class="col">
+            <b># max bounces</b>
+            <input
+                type="number"
+                value={store.nMaxBounces}
+                min="1"
+                step="1"
+                onchange={event => {
+                    const numeric = Number(event.currentTarget.value);
+                    store.nMaxBounces = isNaN(numeric) ? 8 : numeric;
+                }}
+            />
+        </div>
+
+        <div class="col">
+            <b># samples / grid cell</b>
+            <input
+                type="number"
+                value={store.nSamplesPerGridCell}
+                min="1"
+                step="1"
+                onchange={event => {
+                    const numeric = Number(event.currentTarget.value);
+                    store.nSamplesPerGridCell = isNaN(numeric) ? 1 : numeric;
+                }}
+            />
+        </div>
+
+        <div class="col">
             <b>Supersample rate</b>
             <input
                 type="number"
                 value={store.supersampleRate}
+                min="1"
+                step="1"
                 onchange={event => {
                     const numeric = Number(event.currentTarget.value);
                     store.supersampleRate = isNaN(numeric) ? 4 : numeric;
@@ -72,7 +102,7 @@ let {
         </div>
 
         <div>
-            <b>Average sample time (incl. overhead)</b>&#x2003;{
+            <b>Average sample time (+ overhead)</b>&#x2003;{
                 store.avgSampleTime === null
                     ? "--"
                     : `${(store.avgSampleTime / 1000).toFixed(3)} s`
@@ -80,7 +110,7 @@ let {
         </div>
 
         <div>
-            <b>Total sample time (incl. overhead)</b>&#x2003;{store.cumulativeSampleTime / 1000} s
+            <b>Total sample time (+ overhead)</b>&#x2003;{store.cumulativeSampleTime / 1000} s
         </div>
     </div>
 </div>

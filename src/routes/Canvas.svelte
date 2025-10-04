@@ -2,7 +2,7 @@
 import { onMount, tick } from "svelte";
 import renderShaderSrc from "./render.wgsl?raw";
 import { loadGltfScene } from "./scene";
-import { RenderMethod, type Store } from "./Store.svelte";
+import { RenderTiming, type Store } from "./Store.svelte";
 
 let {
     status = $bindable(),
@@ -32,8 +32,6 @@ let computeFinishPassPipeline: GPUComputePipeline;
 let computeSortIntersectionsPipeline: GPUComputePipeline;
 let uniformsBuffer: GPUBuffer;
 let storedBuffer: GPUBuffer;
-let afterAllSamplesCommandBuffer: GPUCommandBuffer;
-let afterSingleSampleCommandBuffer: GPUCommandBuffer;
 
 const gpuReady = Promise.withResolvers<void>();
 let okToRerender = false;
@@ -118,7 +116,7 @@ onMount(async () => {
 
 
     uniformsBuffer = device.createBuffer({
-        size: 16,
+        size: 32,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -325,8 +323,6 @@ let rerenderTriggered = false;
 const hardRerender = async (nextWidth: number, nextHeight: number) => {
     rerenderTriggered = false;
 
-    device.queue.writeBuffer(uniformsBuffer, 0, new Uint32Array([width, height]));
-
     const N_ELEMENTS = nextWidth * nextHeight;
 
     const outputBuffer = device.createBuffer({
@@ -400,38 +396,18 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
         ],
     });
 
-    afterAllSamplesCommandBuffer = (() => {
-        const commandEncoder = device.createCommandEncoder();
 
-        const computePassEncoder = commandEncoder.beginComputePass();
-        computePassEncoder.setBindGroup(0, bindGroup);
-        computePassEncoder.setPipeline(computeFullPipeline);
-        computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
-        computePassEncoder.end();
-
-        addRenderPass(commandEncoder);
-
-        return commandEncoder.finish();
-    })();
-
-    afterSingleSampleCommandBuffer = (() => {
-        const commandEncoder = device.createCommandEncoder();
-
-        const computePassEncoder = commandEncoder.beginComputePass();
-        computePassEncoder.setBindGroup(0, bindGroup);
-        computePassEncoder.setPipeline(computeSinglePassPipeline);
-        computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
-        computePassEncoder.end();
-
-        addRenderPass(commandEncoder);
-
-        return commandEncoder.finish();
-    })();
-
-
-    device.queue.writeBuffer(uniformsBuffer, 12, new Uint32Array([store.supersampleRate]));
+    device.queue.writeBuffer(uniformsBuffer, 0, new Uint32Array([width, height]));
+    device.queue.writeBuffer(uniformsBuffer, 12, new Uint32Array([
+        store.supersampleRate,
+        store.nSamplesPerGridCell,
+        store.nMaxBounces,
+    ]));
 
     status = "rendering";
+
+    store.nRenderedSamples = 0;
+    store.cumulativeSampleTime = 0;
 
     await new Promise(resolve => setTimeout(resolve));
 
@@ -439,9 +415,9 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
     store.cumulativeSampleTime = 0;
     const start = performance.now();
 
-    switch (store.renderMethod) {
-        case RenderMethod.afterEverySample:
-            for (let i = 0; i < store.supersampleRate * store.supersampleRate; i++) {
+    switch (store.renderTiming) {
+        case RenderTiming.afterEverySample: {
+            for (let i = 0; i < store.nTargetSamples; i++) {
                 rerenderTriggered = true;
                 
                 device.queue.writeBuffer(uniformsBuffer, 8, new Uint32Array([i]));
@@ -467,12 +443,24 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
 
             }
             break;
+        }
 
-        case RenderMethod.afterAllSamples:
+        case RenderTiming.afterAllSamples: {
             rerenderTriggered = true;
             
             device.queue.writeBuffer(storedBuffer, 0, new Uint32Array([0]));
-            device.queue.submit([afterAllSamplesCommandBuffer]);
+
+            const commandEncoder = device.createCommandEncoder();
+
+            const computePassEncoder = commandEncoder.beginComputePass();
+            computePassEncoder.setBindGroup(0, bindGroup);
+            computePassEncoder.setPipeline(computeFullPipeline);
+            computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
+            computePassEncoder.end();
+
+            addRenderPass(commandEncoder);
+
+            device.queue.submit([commandEncoder.finish()]);
             
             await device.queue.onSubmittedWorkDone();
             if (!rerenderTriggered) return;
@@ -481,6 +469,7 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
             store.cumulativeSampleTime = performance.now() - start;
 
             break;
+        }
     }
     
 
@@ -493,8 +482,8 @@ const addRenderPass = (commandEncoder: GPUCommandEncoder) => {
             {
                 clearValue: {
                     r: 0,
-                    g: 0.5,
-                    b: 1,
+                    g: 0,
+                    b: 0,
                     a: 0,
                 },
                 loadOp: "clear",
@@ -512,7 +501,7 @@ const addRenderPass = (commandEncoder: GPUCommandEncoder) => {
 };
 
 $effect(() => {
-    void store.renderMethod, store.supersampleRate;
+    void store.renderTiming, store.supersampleRate, store.nSamplesPerGridCell, store.nMaxBounces;
     if (!okToRerender) return;
     hardRerender(width, height);
 });
