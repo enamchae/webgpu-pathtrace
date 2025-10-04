@@ -2,7 +2,7 @@
 import Canvas from "./Canvas.svelte";
     import Overlays from "./Overlays.svelte";
 
-let status = $state("");
+let status = $state("loading JS");
 </script>
 
 <main>

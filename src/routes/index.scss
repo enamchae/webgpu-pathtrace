@@ -1,9 +1,14 @@
 * {
     box-sizing: border-box;
     margin: 0;
+    font-family: inherit;
 }
 
 body {
     width: 100vw;
     height: 100vh;
+
+    font-family: "Atkinson Hyperlegible Next", sans-serif;
+
+    background: oklch(0.4 0.02 150);
 }
