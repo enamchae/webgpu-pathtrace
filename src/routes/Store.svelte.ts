@@ -15,4 +15,6 @@ export class Store {
     cumulativeSampleTime = $state(0);
     readonly nTargetSamples = $derived(this.supersampleRate * this.supersampleRate * this.nSamplesPerGridCell);
     readonly avgSampleTime = $derived(this.nRenderedSamples === 0 ? null : this.cumulativeSampleTime / this.nRenderedSamples);
+
+    nTriangles = $state<number | null>(null);
 }

@@ -96,6 +96,7 @@ onMount(async () => {
 
 
     const {triangles, materials} = await loadGltfScene("/icosphere.glb");
+    store.nTriangles = triangles.byteLength / 48;
 
     
     trianglesBuffer = device.createBuffer({

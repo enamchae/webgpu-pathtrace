@@ -36,6 +36,12 @@ let {
         <div>
             <b>Total sample time (+ overhead)</b>&#x2003;{store.cumulativeSampleTime / 1000} s
         </div>
+
+        <Separator />
+
+        <div>
+            <b># triangles</b>&#x2003;{store.nTriangles === null ? "--" : store.nTriangles}
+        </div>
     </div>
 
     <div class="panel">
