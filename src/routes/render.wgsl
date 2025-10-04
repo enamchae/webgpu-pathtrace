@@ -96,7 +96,8 @@ fn comp(
                 break;
             }
             
-            ray = step_sample(ray);
+            let result = intersect(ray.origin, ray.dir, ray.thread_index);
+            ray = shade_ray(result, ray);
         }
         
         avg_linear_col = mix(avg_linear_col, linear_col, 1 / f32(nth_pass));
@@ -343,8 +344,11 @@ fn intersect(origin: vec3f, dir: vec3f, thread_index: u32) -> IntersectionResult
 }
 
 fn xxhash32_3d(p: vec3u) -> u32 {
-    let p2 = 2246822519u; let p3 = 3266489917u;
-    let p4 = 668265263u; let p5 = 374761393u;
+    const p2 = 2246822519u;
+    const p3 = 3266489917u;
+    const p4 = 668265263u;
+    const p5 = 374761393u;
+
     var h32 =  p.z + p5 + p.x*p3;
     h32 = p4 * ((h32 << 17) | (h32 >> (32 - 17)));
     h32 += p.y * p3;
@@ -353,10 +357,11 @@ fn xxhash32_3d(p: vec3u) -> u32 {
     h32 = p3 * (h32^(h32 >> 13));
     return h32^(h32 >> 16);
 }
+
 fn rand33(f: vec3f) -> vec3f {
     let hash = f32(xxhash32_3d(bitcast<vec3u>(f)));
     
-    return vec3f(hash, hash, hash) / f32(0xffffffff);
+    return vec3f(hash, hash, hash) / f32(0xFFFFFFFF);
 }
 
 fn sample_cosine_weighted_hemisphere(uniform_samples: vec2f, normal: vec3f) -> vec3f {
@@ -421,21 +426,21 @@ fn shade_ray(result: IntersectionResult, ray: Ray) -> Ray {
         if uniform_samples.x < material.roughness {
             new_dir = diffuse_reflect(-result.intersection.normal, -ray.dir, ray.seed);
         } else {
-            new_dir = refract(ray.dir, result.intersection.normal, 1.35);
+            new_dir = refract(ray.dir, result.intersection.normal, 1.5);
         }
     }
 
     return Ray(new_origin, new_dir, result.material_index, ray.seed, ray.thread_index, ray.linear_col * material.diffuse.rgb, 0);
 }
 
-fn step_sample(ray: Ray) -> Ray {
-    let result = intersect(ray.origin, ray.dir, ray.thread_index);
-    return shade_ray(result, ray);
-}
-
-
 fn set_up_sample(uv: vec2f, nth_pass: u32, index: u32) -> Ray {
-    let uniform_samples = rand33(vec3f(uv, f32(nth_pass))).xy;
+    let supersample_grid_jitter = rand33(vec3f(uv, f32(nth_pass))).xy;
+    let dof_jitter_params = rand33(vec3f(uv, f32(nth_pass)) - 5.9).xy; // (r^2, theta)
+
+    let dof_radius = sqrt(dof_jitter_params.x) * 0.25;
+    let dof_angle = REV * dof_jitter_params.y;
+
+    let dof_jittered_origin = vec3f(dof_radius * vec2f(cos(dof_angle), sin(dof_angle)), 0);
 
 
     let grid_index = nth_pass % (SUPERSAMPLE_RATE * SUPERSAMPLE_RATE);
@@ -443,9 +448,15 @@ fn set_up_sample(uv: vec2f, nth_pass: u32, index: u32) -> Ray {
     let grid_y = nth_pass / SUPERSAMPLE_RATE;
 
 
-    let adjusted_uv = uv + (vec2f(f32(grid_x), f32(grid_y)) - 0.5 + uniform_samples) / f32(SUPERSAMPLE_RATE) / (vec2f(uniforms.resolution) / 2);
+    let adjusted_uv = uv + (vec2f(f32(grid_x), f32(grid_y)) - 0.5 + supersample_grid_jitter) / f32(SUPERSAMPLE_RATE) / (vec2f(uniforms.resolution) / 2);
+    let orig_dir = get_dir(adjusted_uv);
+    let seed = vec3f(adjusted_uv, f32(nth_pass));
+    
+    const DOF_DISTANCE = 11.;
 
-    return Ray(vec3f(0, 0, 0), get_dir(adjusted_uv), 0, vec3f(adjusted_uv, f32(nth_pass)), index, vec3f(1, 1, 1), 0);
+    let dof_jittered_dir = normalize(orig_dir * f32(DOF_DISTANCE) - dof_jittered_origin);
+
+    return Ray(dof_jittered_origin, dof_jittered_dir, 0, seed, index, vec3f(1, 1, 1), 0);
 }
 
 fn get_dir(uv: vec2f) -> vec3f {
