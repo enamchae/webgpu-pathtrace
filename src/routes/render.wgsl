@@ -65,6 +65,8 @@ struct Uniforms {
     supersample_rate: u32,
     n_samples_per_grid_cell: u32,
     n_max_bounces: u32,
+    dof_radius: f32,
+    dof_distance: f32,
 }
 
 struct Stored {
@@ -468,7 +470,7 @@ fn set_up_sample(uv: vec2f, nth_pass: u32, index: u32) -> Ray {
     let supersample_grid_jitter = rand33(vec3f(uv, f32(nth_pass))).xy;
     let dof_jitter_params = rand33(vec3f(uv, f32(nth_pass)) - 5.9).xy; // (r^2, theta)
 
-    let dof_radius = sqrt(dof_jitter_params.x) * 0.25;
+    let dof_radius = sqrt(dof_jitter_params.x) * uniforms.dof_radius;
     let dof_angle = REV * dof_jitter_params.y;
 
     let dof_jittered_origin = vec3f(dof_radius * vec2f(cos(dof_angle), sin(dof_angle)), 0);
@@ -483,9 +485,7 @@ fn set_up_sample(uv: vec2f, nth_pass: u32, index: u32) -> Ray {
     let orig_dir = get_dir(adjusted_uv);
     let seed = vec3f(adjusted_uv, f32(nth_pass));
     
-    const DOF_DISTANCE = 11.;
-
-    let dof_jittered_dir = normalize(orig_dir * f32(DOF_DISTANCE) - dof_jittered_origin);
+    let dof_jittered_dir = normalize(orig_dir * f32(uniforms.dof_distance) - dof_jittered_origin);
 
     return Ray(dof_jittered_origin, dof_jittered_dir, 0, seed, index, vec3f(1, 1, 1), 0);
 }

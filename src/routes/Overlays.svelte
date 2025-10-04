@@ -21,6 +21,24 @@ let {
     </div>
 
     <div class="panel">
+        <div>
+            <b># samples complete</b>&#x2003;{store.nRenderedSamples} / {store.nTargetSamples}
+        </div>
+
+        <div>
+            <b>Avg sample time (+ overhead)</b>&#x2003;{
+                store.avgSampleTime === null
+                    ? "--"
+                    : `${(store.avgSampleTime / 1000).toFixed(3)} s`
+            }
+        </div>
+
+        <div>
+            <b>Total sample time (+ overhead)</b>&#x2003;{store.cumulativeSampleTime / 1000} s
+        </div>
+    </div>
+
+    <div class="panel">
         <div class="col">
             <b>Render timing</b>
 
@@ -49,6 +67,32 @@ let {
                     after all samples
                 </label>
             </div>
+        </div>
+
+        <Separator />
+
+        <div class="col">
+            <b>DoF radius</b>
+            <input
+                type="number"
+                value={store.dofRadius}
+                onchange={event => {
+                    const numeric = Number(event.currentTarget.value);
+                    store.dofRadius = isNaN(numeric) ? 0.25 : numeric;
+                }}
+            />
+        </div>
+
+        <div class="col">
+            <b>DoF distance</b>
+            <input
+                type="number"
+                value={store.dofDistance}
+                onchange={event => {
+                    const numeric = Number(event.currentTarget.value);
+                    store.dofDistance = isNaN(numeric) ? 10 : numeric;
+                }}
+            />
         </div>
 
         <Separator />
@@ -95,29 +139,11 @@ let {
             />
         </div>
     </div>
-
-    <div class="panel">
-        <div>
-            <b># samples complete</b>&#x2003;{store.nRenderedSamples} / {store.nTargetSamples}
-        </div>
-
-        <div>
-            <b>Average sample time (+ overhead)</b>&#x2003;{
-                store.avgSampleTime === null
-                    ? "--"
-                    : `${(store.avgSampleTime / 1000).toFixed(3)} s`
-            }
-        </div>
-
-        <div>
-            <b>Total sample time (+ overhead)</b>&#x2003;{store.cumulativeSampleTime / 1000} s
-        </div>
-    </div>
 </div>
 
 <style lang="scss">
 .overlays {
-    width: 30rem;
+    width: 25rem;
     padding: 1rem;
     overflow-y: auto;
 

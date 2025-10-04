@@ -404,6 +404,11 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
         store.nMaxBounces,
     ]));
 
+    device.queue.writeBuffer(uniformsBuffer, 24, new Float32Array([
+        store.dofRadius,
+        store.dofDistance,
+    ]));
+
     status = "rendering";
 
     store.nRenderedSamples = 0;
@@ -501,7 +506,7 @@ const addRenderPass = (commandEncoder: GPUCommandEncoder) => {
 };
 
 $effect(() => {
-    void store.renderTiming, store.supersampleRate, store.nSamplesPerGridCell, store.nMaxBounces;
+    void store.renderTiming, store.supersampleRate, store.nSamplesPerGridCell, store.nMaxBounces, store.dofDistance, store.dofRadius;
     if (!okToRerender) return;
     hardRerender(width, height);
 });
