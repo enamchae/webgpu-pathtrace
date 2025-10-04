@@ -4,7 +4,6 @@ const PI_2 = PI / 2;
 const PI_4 = PI / 4;
 const SQRT_1_3 = 1 / sqrt(3);
 
-const SUPERSAMPLE_RATE = 16u;
 const WORKGROUP_SIZE = 256u;
 const N_MAX_BOUNCES = 19u;
 
@@ -63,6 +62,8 @@ struct Ray {
 
 struct Uniforms {
     resolution: vec2u,
+    nth_pass: u32,
+    supersample_rate: u32,
 }
 
 struct Stored {
@@ -76,7 +77,7 @@ fn terminated_ray_with_col(linear_col: vec3f, index: u32, material_index: u32) -
 
 @compute
 @workgroup_size(WORKGROUP_SIZE)
-fn comp(
+fn comp_full(
     @builtin(global_invocation_id) global_id: vec3u,
 ) {
     let thread_index = global_id.x;
@@ -86,7 +87,7 @@ fn comp(
     let uv = get_square_centered_uv(thread_index);
 
     var avg_linear_col = vec3f(0, 0, 0);
-    for (var nth_pass = 1u; nth_pass <= SUPERSAMPLE_RATE * SUPERSAMPLE_RATE; nth_pass++) {
+    for (var nth_pass = 1u; nth_pass <= uniforms.supersample_rate * uniforms.supersample_rate; nth_pass++) {
         var ray = set_up_sample(uv, nth_pass, thread_index);
         var linear_col = vec3f(0, 0, 0);
 
@@ -103,6 +104,35 @@ fn comp(
         avg_linear_col = mix(avg_linear_col, linear_col, 1 / f32(nth_pass));
     }
     output[thread_index] = avg_linear_col;
+}
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_single_pass(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    if thread_index >= uniforms.resolution.x * uniforms.resolution.y { return; }
+
+    let nth_pass = uniforms.nth_pass;
+
+
+    let uv = get_square_centered_uv(thread_index);
+
+    var ray = set_up_sample(uv, nth_pass, thread_index);
+    var linear_col = vec3f(0, 0, 0);
+
+    for (var depth = 0u; depth < N_MAX_BOUNCES; depth++) {
+        if ray.terminated == 1 {
+            linear_col = ray.linear_col;
+            break;
+        }
+        
+        let result = intersect(ray.origin, ray.dir, ray.thread_index);
+        ray = shade_ray(result, ray);
+    }
+    
+    output[thread_index] = mix(output[thread_index], linear_col, 1 / f32(nth_pass + 1));
 }
 
 @compute
@@ -443,12 +473,12 @@ fn set_up_sample(uv: vec2f, nth_pass: u32, index: u32) -> Ray {
     let dof_jittered_origin = vec3f(dof_radius * vec2f(cos(dof_angle), sin(dof_angle)), 0);
 
 
-    let grid_index = nth_pass % (SUPERSAMPLE_RATE * SUPERSAMPLE_RATE);
-    let grid_x = nth_pass % SUPERSAMPLE_RATE;
-    let grid_y = nth_pass / SUPERSAMPLE_RATE;
+    let grid_index = nth_pass % (uniforms.supersample_rate * uniforms.supersample_rate);
+    let grid_x = nth_pass % uniforms.supersample_rate;
+    let grid_y = nth_pass / uniforms.supersample_rate;
 
 
-    let adjusted_uv = uv + (vec2f(f32(grid_x), f32(grid_y)) - 0.5 + supersample_grid_jitter) / f32(SUPERSAMPLE_RATE) / (vec2f(uniforms.resolution) / 2);
+    let adjusted_uv = uv + (vec2f(f32(grid_x), f32(grid_y)) - 0.5 + supersample_grid_jitter) / f32(uniforms.supersample_rate) / (vec2f(uniforms.resolution) / 2);
     let orig_dir = get_dir(adjusted_uv);
     let seed = vec3f(adjusted_uv, f32(nth_pass));
     

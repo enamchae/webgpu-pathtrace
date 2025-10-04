@@ -1,18 +1,18 @@
 <script lang="ts">
 import { onMount, tick } from "svelte";
 import renderShaderSrc from "./render.wgsl?raw";
-import { Quad } from "./Quad.svelte";
-import { Vec3 } from "./Vec3.svelte";
-import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
-
+import { loadGltfScene } from "./scene";
+import { RenderMethod, type Store } from "./Store.svelte";
 
 let {
     status = $bindable(),
+    err = $bindable(),
+    store,
 }: {
     status: string,
+    err: string | null,
+    store: Store,
 } = $props();
-
-let err = $state<string | null>(null);
 
 let canvas: HTMLCanvasElement;
 let device: GPUDevice;
@@ -24,6 +24,7 @@ let bindGroupLayout: GPUBindGroupLayout;
 let bindGroup: GPUBindGroup;
 let renderPipeline: GPURenderPipeline;
 let computeFullPipeline: GPUComputePipeline;
+let computeSinglePassPipeline: GPUComputePipeline;
 let computeBeginPassPipeline: GPUComputePipeline;
 let computeIntersectPipeline: GPUComputePipeline;
 let computeShadePipeline: GPUComputePipeline;
@@ -31,9 +32,11 @@ let computeFinishPassPipeline: GPUComputePipeline;
 let computeSortIntersectionsPipeline: GPUComputePipeline;
 let uniformsBuffer: GPUBuffer;
 let storedBuffer: GPUBuffer;
-let commandBuffer: GPUCommandBuffer;
+let afterAllSamplesCommandBuffer: GPUCommandBuffer;
+let afterSingleSampleCommandBuffer: GPUCommandBuffer;
 
 const gpuReady = Promise.withResolvers<void>();
+let okToRerender = false;
 
 status = "loading component";
 
@@ -93,102 +96,10 @@ onMount(async () => {
 
     status = "loading scene file";
 
-    const gltf = await new Promise((resolve, reject) => new GLTFLoader().load("/icosphere.glb", resolve));
-    console.log(gltf);
 
-    let nBytes = 0;
-    for (const child of gltf.scene.children) {
-        nBytes += child.geometry.index.array.length / 3 * 48;
-    }
+    const {triangles, materials} = await loadGltfScene("/icosphere.glb");
 
-    const triangles = new ArrayBuffer(nBytes);
-
-    let offset = 0;
-
-    for (const child of gltf.scene.children) {
-        const pos = child.geometry.attributes.position.array;
-        const index = child.geometry.index.array;
-
-        for (let i = 0; i < index.length; i += 3) {
-            new Float32Array(triangles, offset).set(pos.slice(3 * index[i], 3 * index[i] + 3));
-            new Float32Array(triangles, offset + 16).set(pos.slice(3 * index[i + 1], 3 * index[i + 1] + 3));
-            new Float32Array(triangles, offset + 32).set(pos.slice(3 * index[i + 2], 3 * index[i + 2] + 3));
-            new Uint32Array(triangles, offset + 12).set([0]);
-
-            offset += 48;
-        }
-    }
-
-        
-    // const quads = [
-    //     new Quad(
-    //         new Vec3(1, 1, -2),
-    //         new Vec3(1, -1, -2),
-    //         new Vec3(1, -1, -4),
-    //         new Vec3(1, 1, -4),
-    //         1,
-    //     ),
-
-    //     new Quad(
-    //         new Vec3(-1, 1, -2),
-    //         new Vec3(1, 1, -2),
-    //         new Vec3(1, 1, -4),
-    //         new Vec3(-1, 1, -6),
-    //     ),
-
-    //     new Quad(
-    //         new Vec3(-1, -1, -2),
-    //         new Vec3(-1, 1, -2),
-    //         new Vec3(-1, 1, -6),
-    //         new Vec3(-1, -1, -6),
-    //         2,
-    //     ),
-
-    //     new Quad(
-    //         new Vec3(1, -1, -2),
-    //         new Vec3(-1, -1, -2),
-    //         new Vec3(-1, -1, -6),
-    //         new Vec3(1, -1, -4),
-    //         3,
-    //     ),
-
-    //     new Quad(
-    //         new Vec3(1, 1, -4),
-    //         new Vec3(-1, 1, -6),
-    //         new Vec3(-1, -1, -6),
-    //         new Vec3(1, -1, -4),
-    //     ),
-
-    //     // new Quad(
-    //     //     new Vec3(0.75, 0.75, -4),
-    //     //     new Vec3(-0.25, 0.75, -4),
-    //     //     new Vec3(-0.25, -0.25, -4),
-    //     //     new Vec3(0.75, -0.25, -4),
-    //     //     [0, 0, 0, 1],
-    //     //     [1, 1, 1, 1],
-    //     // ),
-
-    //     new Quad(
-    //         new Vec3(0.5, -0.95, -1),
-    //         new Vec3(-0.5, -0.95, -1),
-    //         new Vec3(-0.5, -0.95, -6),
-    //         new Vec3(0.5, -0.95, -6),
-    //         4,
-    //     ),
-
-    //     new Quad(
-    //         new Vec3(0.5, 0.3, -2),
-    //         new Vec3(-0.5, 0.3, -2),
-    //         new Vec3(-0.5, 0.3, -6),
-    //         new Vec3(0.5, 0.3, -6),
-    //     ),
-    // ];
-
-    // const triangles2 = new ArrayBuffer(quads.length * 96);
-    // for (const [i, quad] of quads.entries()) {
-    //     quad.writeTris(triangles2, i);
-    // }
-
+    
     trianglesBuffer = device.createBuffer({
         size: triangles.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -197,27 +108,6 @@ onMount(async () => {
     device.queue.writeBuffer(trianglesBuffer, 0, triangles);
 
 
-    const materials = new Float32Array([
-        0.8, 0.9, 0.9, 1,
-        0, 0, 0, 0,
-        1, 0, 0, 0,
-
-        0.6, 0.1, 0.1, 0.3,
-        0, 0, 0, 0,
-        0.5, 0, 0, 0,
-
-        0.1, 0.6, 0.1, 1,
-        0, 0, 0, 0,
-        0.5, 0, 0, 0,
-
-        0.1, 0.1, 0.2, 1,
-        0, 0, 0, 0,
-        0.5, 0, 0, 0,
-
-        0, 0, 0, 1,
-        1, 1, 1, 1,
-        0.5, 0, 0, 0,
-    ]);
     materialsBuffer = device.createBuffer({
         size: materials.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -226,8 +116,9 @@ onMount(async () => {
     device.queue.writeBuffer(materialsBuffer, 0, materials);
 
 
+
     uniformsBuffer = device.createBuffer({
-        size: 8,
+        size: 16,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -347,7 +238,18 @@ onMount(async () => {
 
         compute: {
             module: renderShaderModule,
-            entryPoint: "comp",
+            entryPoint: "comp_full",
+        },
+    });
+
+    computeSinglePassPipeline = device.createComputePipeline({
+        layout: device.createPipelineLayout({
+            bindGroupLayouts: [bindGroupLayout],
+        }),
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_single_pass",
         },
     });
 
@@ -412,12 +314,17 @@ onMount(async () => {
     });
 
     status = "setting up render";
+    okToRerender = true;
 
     gpuReady.resolve();
 });
 
 
+
+let rerenderTriggered = false;
 const hardRerender = async (nextWidth: number, nextHeight: number) => {
+    rerenderTriggered = false;
+
     device.queue.writeBuffer(uniformsBuffer, 0, new Uint32Array([width, height]));
 
     const N_ELEMENTS = nextWidth * nextHeight;
@@ -493,51 +400,91 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
         ],
     });
 
+    afterAllSamplesCommandBuffer = (() => {
+        const commandEncoder = device.createCommandEncoder();
+
+        const computePassEncoder = commandEncoder.beginComputePass();
+        computePassEncoder.setBindGroup(0, bindGroup);
+        computePassEncoder.setPipeline(computeFullPipeline);
+        computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
+        computePassEncoder.end();
+
+        addRenderPass(commandEncoder);
+
+        return commandEncoder.finish();
+    })();
+
+    afterSingleSampleCommandBuffer = (() => {
+        const commandEncoder = device.createCommandEncoder();
+
+        const computePassEncoder = commandEncoder.beginComputePass();
+        computePassEncoder.setBindGroup(0, bindGroup);
+        computePassEncoder.setPipeline(computeSinglePassPipeline);
+        computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
+        computePassEncoder.end();
+
+        addRenderPass(commandEncoder);
+
+        return commandEncoder.finish();
+    })();
+
+
+    device.queue.writeBuffer(uniformsBuffer, 12, new Uint32Array([store.supersampleRate]));
+
+    status = "rendering";
+
+    await new Promise(resolve => setTimeout(resolve));
+
+    store.nRenderedSamples = 0;
+    store.cumulativeSampleTime = 0;
+    const start = performance.now();
+
+    switch (store.renderMethod) {
+        case RenderMethod.afterEverySample:
+            for (let i = 0; i < store.supersampleRate * store.supersampleRate; i++) {
+                rerenderTriggered = true;
+                
+                device.queue.writeBuffer(uniformsBuffer, 8, new Uint32Array([i]));
+
+
+                const commandEncoder = device.createCommandEncoder();
+
+                const computePassEncoder = commandEncoder.beginComputePass();
+                computePassEncoder.setBindGroup(0, bindGroup);
+                computePassEncoder.setPipeline(computeSinglePassPipeline);
+                computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
+                computePassEncoder.end();
+
+                addRenderPass(commandEncoder);
+
+                device.queue.submit([commandEncoder.finish()]);
+
+                await device.queue.onSubmittedWorkDone();
+                if (!rerenderTriggered) return;
+
+                store.nRenderedSamples++;
+                store.cumulativeSampleTime = performance.now() - start;
+
+            }
+            break;
+
+        case RenderMethod.afterAllSamples:
+            rerenderTriggered = true;
+            
+            device.queue.writeBuffer(storedBuffer, 0, new Uint32Array([0]));
+            device.queue.submit([afterAllSamplesCommandBuffer]);
+            
+            await device.queue.onSubmittedWorkDone();
+            if (!rerenderTriggered) return;
+
+            store.nRenderedSamples += store.nTargetSamples;
+            store.cumulativeSampleTime = performance.now() - start;
+
+            break;
+    }
     
 
-        
-    const commandEncoder = device.createCommandEncoder();
-
-    const computePassEncoder = commandEncoder.beginComputePass();
-    computePassEncoder.setBindGroup(0, bindGroup);
-    computePassEncoder.setPipeline(computeFullPipeline);
-    computePassEncoder.dispatchWorkgroups(Math.ceil(nextWidth * nextHeight / 256));
-    computePassEncoder.end();
-
-    // const computePassEncoder = commandEncoder.beginComputePass();
-    // computePassEncoder.setBindGroup(0, bindGroup);
-
-    // const nWorkGroups = Math.ceil(nextWidth * nextHeight / 256);
-
-    // for (let nPass = 0; nPass < 1; nPass++) {
-    //     computePassEncoder.setPipeline(computeBeginPassPipeline);
-    //     computePassEncoder.dispatchWorkgroups(nWorkGroups);
-
-    //     for (let nBounce = 0; nBounce < 8; nBounce++) {
-    //         computePassEncoder.setPipeline(computeIntersectPipeline);
-    //         computePassEncoder.dispatchWorkgroups(nWorkGroups);
-
-    //         computePassEncoder.setPipeline(computeSortIntersectionsPipeline);
-    //         for (let nIter = 0; nIter < 96; nIter++) {
-    //             computePassEncoder.dispatchWorkgroups(nWorkGroups);
-    //         }
-
-    //         computePassEncoder.setPipeline(computeShadePipeline);
-    //         computePassEncoder.dispatchWorkgroups(nWorkGroups);
-    //     }
-
-
-    //     computePassEncoder.setPipeline(computeFinishPassPipeline);
-    //     computePassEncoder.dispatchWorkgroups(nWorkGroups);
-    // }
-
-    // computePassEncoder.end();
-
-    addRenderPass(commandEncoder);
-
-    commandBuffer = commandEncoder.finish();
-
-    await rerender(nextWidth, nextHeight);
+    status = "done";
 };
 
 const addRenderPass = (commandEncoder: GPUCommandEncoder) => {
@@ -564,19 +511,11 @@ const addRenderPass = (commandEncoder: GPUCommandEncoder) => {
     renderPassEncoder.end();
 };
 
-const rerender = async (nextWidth: number, nextHeight: number) => {
-    let start = performance.now();
-        
-    
-    device.queue.writeBuffer(storedBuffer, 0, new Uint32Array([0]));
-    device.queue.submit([commandBuffer]);
-
-    status = "rendering";
-
-    device.queue.onSubmittedWorkDone().then(() => {
-        status = `render finished in ${(performance.now() - start) / 1000} s`;
-    });
-};
+$effect(() => {
+    void store.renderMethod, store.supersampleRate;
+    if (!okToRerender) return;
+    hardRerender(width, height);
+});
 
 let width = $state(0);
 let height = $state(0);
