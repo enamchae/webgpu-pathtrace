@@ -12,11 +12,11 @@ export class Store {
     renderTiming = $state<RenderTiming>(RenderTiming.afterEverySample);
     materialSorting = $state(false);
     spatialHierarchy = $state(SpatialHierarchy.octree);
-    dofRadius = $state(0.25);
+    dofRadius = $state(0);
     dofDistance = $state(10);
     supersampleRate = $state(4);
     nSamplesPerGridCell = $state(1);
-    nMaxBounces = $state(4);
+    nMaxBounces = $state(16);
     readonly orbit = new CameraOrbit();
     
     
@@ -29,9 +29,9 @@ export class Store {
 }
 
 export class CameraOrbit {
-    radius = $state(10);
-    lat = $state(Math.PI / 4);
-    long = $state(Math.PI / 5);
+    radius = $state(4);
+    lat = $state(Math.PI / 3);
+    long = $state(Math.PI / 4);
 
     mat() {
         const ct = Math.cos(this.long);

@@ -432,7 +432,7 @@ fn diffuse_reflect(normal: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
 }
 
 fn env(dir: vec3f) -> vec3f {
-    return vec3f(0.3, 0.45, 0.5) + (0.5 * dir);
+    return vec3f(0.3, 0.45, 0.5) + (0.5 * dir * vec3f(1, -1, 1));
     // return vec3f(0.97, 0.95, 1);
 }
 

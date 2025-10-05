@@ -1,7 +1,8 @@
 import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
+import { Matrix4, Object3D, Scene, Vector3 } from "three";
 
 
-const traverseChildren = (scene: object, fn: (child: object) => void) => {
+const traverseChildren = (scene: Object3D, fn: (child: Object3D) => void) => {
     fn(scene);
 
     for (const child of scene.children) {
@@ -9,8 +10,13 @@ const traverseChildren = (scene: object, fn: (child: object) => void) => {
     }
 };
 
+const vec = (array: Float32Array, mat: Matrix4) => {
+    const vec3 = new Vector3(array[0], array[1], array[2]).applyMatrix4(mat);
+    return [vec3.x, -vec3.y, vec3.z];
+};
+
 export const loadGltfScene = async (url: string) => {
-    const gltf = await new Promise((resolve, reject) => new GLTFLoader().load(url, resolve));
+    const gltf: {scene: Scene} = await new Promise((resolve, reject) => new GLTFLoader().load(url, resolve));
 
     console.log(gltf);
     
@@ -30,10 +36,11 @@ export const loadGltfScene = async (url: string) => {
         const pos = child.geometry.attributes.position.array;
         const index = child.geometry.index.array;
 
+
         for (let i = 0; i < index.length; i += 3) {
-            new Float32Array(triangles, offset).set(pos.slice(3 * index[i], 3 * index[i] + 3));
-            new Float32Array(triangles, offset + 16).set(pos.slice(3 * index[i + 1], 3 * index[i + 1] + 3));
-            new Float32Array(triangles, offset + 32).set(pos.slice(3 * index[i + 2], 3 * index[i + 2] + 3));
+            new Float32Array(triangles, offset).set(vec(pos.slice(3 * index[i], 3 * index[i] + 3), child.matrix));
+            new Float32Array(triangles, offset + 16).set(vec(pos.slice(3 * index[i + 1], 3 * index[i + 1] + 3), child.matrix));
+            new Float32Array(triangles, offset + 32).set(vec(pos.slice(3 * index[i + 2], 3 * index[i + 2] + 3), child.matrix));
             new Uint32Array(triangles, offset + 12).set([0]);
 
             offset += 48;
