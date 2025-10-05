@@ -67,6 +67,7 @@ struct Uniforms {
     n_max_bounces: u32,
     dof_radius: f32,
     dof_distance: f32,
+    camera_transform: mat4x4f,
 }
 
 struct Stored {
@@ -487,7 +488,11 @@ fn set_up_sample(uv: vec2f, nth_pass: u32, index: u32) -> Ray {
     
     let dof_jittered_dir = normalize(orig_dir * f32(uniforms.dof_distance) - dof_jittered_origin);
 
-    return Ray(dof_jittered_origin, dof_jittered_dir, 0, seed, index, vec3f(1, 1, 1), 0);
+
+    let final_dir = (uniforms.camera_transform * vec4f(dof_jittered_dir, 0)).xyz;
+    let final_origin = (uniforms.camera_transform * vec4f(dof_jittered_origin, 1)).xyz;
+
+    return Ray(final_origin, final_dir, 0, seed, index, vec3f(1, 1, 1), 0);
 }
 
 fn get_dir(uv: vec2f) -> vec3f {

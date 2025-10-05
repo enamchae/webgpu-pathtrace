@@ -36,8 +36,6 @@ let storedBuffer: GPUBuffer;
 const gpuReady = Promise.withResolvers<void>();
 let okToRerender = false;
 
-status = "loading component";
-
 onMount(async () => {
     status = "accessing gpu";
 
@@ -95,7 +93,7 @@ onMount(async () => {
     status = "loading scene file";
 
 
-    const {triangles, materials} = await loadGltfScene("/icosphere.glb");
+    const {triangles, materials} = await loadGltfScene("/cup.glb");
     store.nTriangles = triangles.byteLength / 48;
 
     
@@ -117,7 +115,7 @@ onMount(async () => {
 
 
     uniformsBuffer = device.createBuffer({
-        size: 32,
+        size: 96,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -320,9 +318,10 @@ onMount(async () => {
 
 
 
-let rerenderTriggered = false;
+let renderId = 0n;
 const hardRerender = async (nextWidth: number, nextHeight: number) => {
-    rerenderTriggered = false;
+    renderId++;
+    const currentRenderId = renderId;
 
     const N_ELEMENTS = nextWidth * nextHeight;
 
@@ -410,6 +409,8 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
         store.dofDistance,
     ]));
 
+    device.queue.writeBuffer(uniformsBuffer, 32, store.orbit.mat());
+
     status = "rendering";
 
     store.nRenderedSamples = 0;
@@ -424,8 +425,6 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
     switch (store.renderTiming) {
         case RenderTiming.afterEverySample: {
             for (let i = 0; i < store.nTargetSamples; i++) {
-                rerenderTriggered = true;
-                
                 device.queue.writeBuffer(uniformsBuffer, 8, new Uint32Array([i]));
 
 
@@ -442,7 +441,7 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
                 device.queue.submit([commandEncoder.finish()]);
 
                 await device.queue.onSubmittedWorkDone();
-                if (!rerenderTriggered) return;
+                if (currentRenderId !== renderId) return;
 
                 store.nRenderedSamples++;
                 store.cumulativeSampleTime = performance.now() - start;
@@ -451,9 +450,7 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
             break;
         }
 
-        case RenderTiming.afterAllSamples: {
-            rerenderTriggered = true;
-            
+        case RenderTiming.afterAllSamples: {            
             device.queue.writeBuffer(storedBuffer, 0, new Uint32Array([0]));
 
             const commandEncoder = device.createCommandEncoder();
@@ -469,7 +466,7 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
             device.queue.submit([commandEncoder.finish()]);
             
             await device.queue.onSubmittedWorkDone();
-            if (!rerenderTriggered) return;
+            if (currentRenderId !== renderId) return;
 
             store.nRenderedSamples += store.nTargetSamples;
             store.cumulativeSampleTime = performance.now() - start;

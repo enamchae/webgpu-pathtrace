@@ -1,20 +1,32 @@
 import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
 
 
+const traverseChildren = (scene: object, fn: (child: object) => void) => {
+    fn(scene);
+
+    for (const child of scene.children) {
+        traverseChildren(child, fn);
+    }
+};
+
 export const loadGltfScene = async (url: string) => {
     const gltf = await new Promise((resolve, reject) => new GLTFLoader().load(url, resolve));
 
+    console.log(gltf);
     
     let nBytes = 0;
-    for (const child of gltf.scene.children) {
+    traverseChildren(gltf.scene, child => {
+        if (!Object.hasOwn(child, "geometry")) return;
         nBytes += child.geometry.index.array.length / 3 * 48;
-    }
+    });
 
     const triangles = new ArrayBuffer(nBytes);
 
     let offset = 0;
 
-    for (const child of gltf.scene.children) {
+    traverseChildren(gltf.scene, child => {
+        if (!Object.hasOwn(child, "geometry")) return;
+
         const pos = child.geometry.attributes.position.array;
         const index = child.geometry.index.array;
 
@@ -26,7 +38,7 @@ export const loadGltfScene = async (url: string) => {
 
             offset += 48;
         }
-    }
+    });
     
         
     // const quads = [
