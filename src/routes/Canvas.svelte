@@ -93,7 +93,7 @@ onMount(async () => {
     status = "loading scene file";
 
 
-    const {triangles, materials} = await loadGltfScene("/b292-small.glb");
+    const {triangles, materials} = await loadGltfScene("/cup.glb");
     store.nTriangles = triangles.byteLength / 48;
 
     

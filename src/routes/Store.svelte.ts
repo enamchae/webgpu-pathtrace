@@ -30,7 +30,7 @@ export class Store {
 
 export class CameraOrbit {
     radius = $state(4);
-    lat = $state(Math.PI / 3);
+    lat = $state(Math.PI / 6);
     long = $state(Math.PI / 4);
 
     mat() {

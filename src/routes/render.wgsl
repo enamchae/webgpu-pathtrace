@@ -436,6 +436,12 @@ fn env(dir: vec3f) -> vec3f {
     // return vec3f(0.97, 0.95, 1);
 }
 
+fn slerp(a: vec3f, b: vec3f, t: f32) -> vec3f {
+    let angle = acos(dot(a, b));
+
+    return (sin((1 - t) * angle) * a + sin(t * angle) * b) / sin(angle);
+}
+
 fn shade_ray(result: IntersectionResult, ray: Ray) -> Ray {
     if result.found == 0 {
         return terminated_ray_with_col(ray.linear_col * env(ray.dir), ray.thread_index, result.material_index);
@@ -448,20 +454,20 @@ fn shade_ray(result: IntersectionResult, ray: Ray) -> Ray {
     }
 
 
+    let slerp_fac = material.roughness * (1 + (uniform_samples.x * 2 - 1) * (1 - material.roughness));
+
     let new_origin = result.intersection.point;
     var new_dir: vec3f;
     if uniform_samples.y < material.diffuse.a {
-        if uniform_samples.x < material.roughness {
-            new_dir = diffuse_reflect(result.intersection.normal, ray.dir, ray.seed);
-        } else {
-            new_dir = reflect(ray.dir, result.intersection.normal);
-        }
+        let diffuse_dir = diffuse_reflect(result.intersection.normal, ray.dir, ray.seed);
+        let glossy_dir = reflect(ray.dir, result.intersection.normal);
+        
+        new_dir = slerp(glossy_dir, diffuse_dir, slerp_fac);
     } else {
-        if uniform_samples.x < material.roughness {
-            new_dir = diffuse_reflect(-result.intersection.normal, -ray.dir, ray.seed);
-        } else {
-            new_dir = refract(ray.dir, result.intersection.normal, 1.5);
-        }
+        let diffuse_dir = diffuse_reflect(-result.intersection.normal, -ray.dir, ray.seed);
+        let glossy_dir = refract(ray.dir, result.intersection.normal, 1.5);
+        
+        new_dir = slerp(glossy_dir, diffuse_dir, slerp_fac);
     }
 
     return Ray(new_origin, new_dir, result.material_index, ray.seed, ray.thread_index, ray.linear_col * material.diffuse.rgb, 0);

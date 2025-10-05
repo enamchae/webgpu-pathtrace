@@ -1,5 +1,5 @@
 import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
-import { Matrix4, Object3D, Scene, Vector3 } from "three";
+import { Material, Matrix4, MeshPhysicalMaterial, Object3D, Scene, Vector3 } from "three";
 
 
 const traverseChildren = (scene: Object3D, fn: (child: Object3D) => void) => {
@@ -20,16 +20,23 @@ export const loadGltfScene = async (url: string) => {
 
     console.log(gltf);
     
-    let nBytes = 0;
+    let nTriBytes = 0;
+    let nMaterialBytes = 0;
+
+    const materialMap = new Map<MeshPhysicalMaterial, number>();
+
     traverseChildren(gltf.scene, child => {
         if (!Object.hasOwn(child, "geometry")) return;
-        nBytes += child.geometry.index.array.length / 3 * 48;
+        nTriBytes += child.geometry.index.array.length / 3 * 48;
+        
+        if (!materialMap.has(child.material)) {
+            materialMap.set(child.material, materialMap.size);
+            nMaterialBytes += 48;
+        }
     });
 
-    const triangles = new ArrayBuffer(nBytes);
-
-    let offset = 0;
-
+    const triangles = new ArrayBuffer(nTriBytes);
+    let triOffset = 0;
     traverseChildren(gltf.scene, child => {
         if (!Object.hasOwn(child, "geometry")) return;
 
@@ -38,14 +45,23 @@ export const loadGltfScene = async (url: string) => {
 
 
         for (let i = 0; i < index.length; i += 3) {
-            new Float32Array(triangles, offset).set(vec(pos.slice(3 * index[i], 3 * index[i] + 3), child.matrix));
-            new Float32Array(triangles, offset + 16).set(vec(pos.slice(3 * index[i + 1], 3 * index[i + 1] + 3), child.matrix));
-            new Float32Array(triangles, offset + 32).set(vec(pos.slice(3 * index[i + 2], 3 * index[i + 2] + 3), child.matrix));
-            new Uint32Array(triangles, offset + 12).set([0]);
+            new Float32Array(triangles, triOffset).set(vec(pos.slice(3 * index[i], 3 * index[i] + 3), child.matrix));
+            new Float32Array(triangles, triOffset + 16).set(vec(pos.slice(3 * index[i + 1], 3 * index[i + 1] + 3), child.matrix));
+            new Float32Array(triangles, triOffset + 32).set(vec(pos.slice(3 * index[i + 2], 3 * index[i + 2] + 3), child.matrix));
+            new Uint32Array(triangles, triOffset + 12).set([materialMap.get(child.material)!]);
 
-            offset += 48;
+            triOffset += 48;
         }
     });
+
+    const materials = new ArrayBuffer(nMaterialBytes);
+    for (const [material, i] of materialMap) {
+        new Float32Array(materials, i * 48).set([
+            material.color.r, material.color.g, material.color.b, Object.hasOwn(material, "_transmission") ? 1 - material._transmission : 1,
+            material.emissive.r, material.emissive.g, material.emissive.b, 0,
+            material.roughness, 0, 0, 0,
+        ]);
+    }
     
         
     // const quads = [
@@ -116,31 +132,6 @@ export const loadGltfScene = async (url: string) => {
     // for (const [i, quad] of quads.entries()) {
     //     quad.writeTris(triangles2, i);
     // }
-
-
-
-    const materials = new Float32Array([
-        0.8, 0.9, 0.9, 1,
-        0, 0, 0, 0,
-        1, 0, 0, 0,
-
-        0.6, 0.1, 0.1, 0.3,
-        0, 0, 0, 0,
-        0.5, 0, 0, 0,
-
-        0.1, 0.6, 0.1, 1,
-        0, 0, 0, 0,
-        0.5, 0, 0, 0,
-
-        0.1, 0.1, 0.2, 1,
-        0, 0, 0, 0,
-        0.5, 0, 0, 0,
-
-        0, 0, 0, 1,
-        1, 1, 1, 1,
-        0.5, 0, 0, 0,
-    ]);
-
 
     return {
         triangles,
