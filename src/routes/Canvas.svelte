@@ -17,15 +17,12 @@ let {
 
 let canvas: HTMLCanvasElement;
 let device: GPUDevice;
-let context: GPUCanvasContext;
+let context: GPUCanvasContext | null;
 let vertBuffer: GPUBuffer;
 let trianglesBuffer: GPUBuffer;
 let materialsBuffer: GPUBuffer;
 let bindGroupLayout: GPUBindGroupLayout;
-let bindGroup: GPUBindGroup;
 let renderPipeline: GPURenderPipeline;
-let computeFullPipeline: GPUComputePipeline;
-let computeSinglePassPipeline: GPUComputePipeline;
 let computeBeginPassPipeline: GPUComputePipeline;
 let computeIntersectPipeline: GPUComputePipeline;
 let computeShadePipeline: GPUComputePipeline;
@@ -123,12 +120,6 @@ onMount(async () => {
     });
 
 
-    storedBuffer = device.createBuffer({
-        size: 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-
-
 
     bindGroupLayout = device.createBindGroupLayout({
         entries: [
@@ -182,7 +173,23 @@ onMount(async () => {
 
             {
                 binding: 6,
-                visibility: GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: {
+                    type: "storage",
+                },
+            },
+
+            {
+                binding: 7,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: {
+                    type: "storage",
+                },
+            },
+
+            {
+                binding: 8,
+                visibility: GPUShaderStage.COMPUTE,
                 buffer: {
                     type: "storage",
                 },
@@ -230,11 +237,13 @@ onMount(async () => {
         }),
     });
 
+    const pipelineLayout = device.createPipelineLayout({
+        bindGroupLayouts: [bindGroupLayout],
+    });
 
-    computeFullPipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({
-            bindGroupLayouts: [bindGroupLayout],
-        }),
+
+    const computeFullPipeline = device.createComputePipeline({
+        layout: pipelineLayout,
 
         compute: {
             module: renderShaderModule,
@@ -242,10 +251,8 @@ onMount(async () => {
         },
     });
 
-    computeSinglePassPipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({
-            bindGroupLayouts: [bindGroupLayout],
-        }),
+    const computeSinglePassPipeline = device.createComputePipeline({
+        layout: pipelineLayout,
 
         compute: {
             module: renderShaderModule,
@@ -253,10 +260,53 @@ onMount(async () => {
         },
     });
 
+    const computeCompactBoolsPipeline = device.createComputePipeline({
+        layout: pipelineLayout,
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_set_terminated_bools",
+        },
+    });
+
+    const computeCompactUpsweepPipeline = device.createComputePipeline({
+        layout: pipelineLayout,
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_terminated_upsweep",
+        },
+    });
+
+    const computeCompactDownsweepPipeline = device.createComputePipeline({
+        layout: pipelineLayout,
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_terminated_downsweep",
+        },
+    });
+
+    const computeCompactScatterPipeline = device.createComputePipeline({
+        layout: pipelineLayout,
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_terminated_scatter",
+        },
+    });
+
+    const computeCompactCopyBackPipeline = device.createComputePipeline({
+        layout: pipelineLayout,
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_terminated_copy_back",
+        },
+    });
+
     computeBeginPassPipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({
-            bindGroupLayouts: [bindGroupLayout],
-        }),
+        layout: pipelineLayout,
 
         compute: {
             module: renderShaderModule,
@@ -266,9 +316,7 @@ onMount(async () => {
 
 
     computeIntersectPipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({
-            bindGroupLayouts: [bindGroupLayout],
-        }),
+        layout: pipelineLayout,
 
         compute: {
             module: renderShaderModule,
@@ -278,9 +326,7 @@ onMount(async () => {
 
 
     computeShadePipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({
-            bindGroupLayouts: [bindGroupLayout],
-        }),
+        layout: pipelineLayout,
 
         compute: {
             module: renderShaderModule,
@@ -290,9 +336,7 @@ onMount(async () => {
 
 
     computeFinishPassPipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({
-            bindGroupLayouts: [bindGroupLayout],
-        }),
+        layout: pipelineLayout,
 
         compute: {
             module: renderShaderModule,
@@ -302,9 +346,7 @@ onMount(async () => {
 
 
     computeSortIntersectionsPipeline = device.createComputePipeline({
-        layout: device.createPipelineLayout({
-            bindGroupLayouts: [bindGroupLayout],
-        }),
+        layout: pipelineLayout,
 
         compute: {
             module: renderShaderModule,
@@ -326,11 +368,15 @@ onMount(async () => {
         trianglesBuffer,
         materialsBuffer,
         uniformsBuffer,
-        storedBuffer,
 
         renderPipeline,
         computeFullPipeline,
         computeSinglePassPipeline,
+        computeCompactBoolsPipeline,
+        computeCompactUpsweepPipeline,
+        computeCompactDownsweepPipeline,
+        computeCompactScatterPipeline,
+        computeCompactCopyBackPipeline,
 
         onStatusChange: value => status = value,
     });

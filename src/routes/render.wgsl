@@ -47,7 +47,16 @@ var<storage, read_write> rays: array<Ray>;
 
 @group(0)
 @binding(6)
-var<storage, read_write> stored: Stored;
+var<storage, read_write> compact_bools1: array<u32>;
+
+@group(0)
+@binding(7)
+var<storage, read_write> compact_bools2: array<u32>;
+
+@group(0)
+@binding(8)
+var<storage, read_write> compact_out: array<Ray>;
+
 
 struct Ray {
     origin: vec3f,
@@ -73,7 +82,7 @@ struct Uniforms {
     
     camera_transform: mat4x4f, // 96
 
-    sweep_step: u32, // 100
+    compact_sweep_step: u32, // 100
 }
 
 struct Stored {
@@ -154,11 +163,7 @@ fn comp_begin_pass(
     if thread_index >= uniforms.resolution.x * uniforms.resolution.y { return; }
 
     let uv = get_square_centered_uv(thread_index);
-    rays[thread_index] = set_up_sample(uv, stored.nth_pass, thread_index);
-    
-    if thread_index == 0 {
-        stored.nth_pass += 1;
-    }
+    rays[thread_index] = set_up_sample(uv, uniforms.nth_pass, thread_index);
 }
 
 @compute
@@ -207,18 +212,93 @@ fn comp_finish_pass(
 
     let ray = rays[thread_index];
     let linear_col = ray.linear_col * f32(ray.terminated);
-    output[ray.thread_index] = mix(output[ray.thread_index], linear_col, 1 / f32(stored.nth_pass));
+    output[ray.thread_index] = mix(output[ray.thread_index], linear_col, 1 / f32(uniforms.nth_pass));
 }
 
 @compute
 @workgroup_size(WORKGROUP_SIZE)
-fn comp_terminated_prefix_upsweep(
+fn comp_set_terminated_bools(
     @builtin(global_invocation_id) global_id: vec3u,
 ) {
     let thread_index = global_id.x;
-    // if index_right >= uniforms.resolution.x * uniforms.resolution.y { return; }
+    if thread_index >= arrayLength(&compact_bools1) { return; }
 
+    if thread_index >= arrayLength(&rays) {
+        compact_bools1[thread_index] = 0;
+        compact_bools2[thread_index] = 0;
+        return;
+    }
 
+    let ray = rays[thread_index];
+
+    compact_bools1[thread_index] = ray.terminated;
+    compact_bools2[thread_index] = 1 - ray.terminated;
+}
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_terminated_upsweep(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    let index_right = (thread_index + 1) * uniforms.compact_sweep_step - 1;
+    if index_right >= arrayLength(&compact_bools1) { return; }
+
+    let index_left = index_right - arrayLength(&compact_bools1) / 2;
+
+    compact_bools1[index_right] += compact_bools1[index_left];
+    compact_bools2[index_right] += compact_bools2[index_left];
+}
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_terminated_downsweep(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    let index_right = (thread_index + 1) * uniforms.compact_sweep_step - 1;
+    if index_right >= arrayLength(&compact_bools1) { return; }
+
+    let index_left = index_right - arrayLength(&compact_bools1) / 2;
+
+    let right1 = compact_bools1[index_right];
+    compact_bools1[index_right] += compact_bools1[index_left];
+    compact_bools1[index_left] = right1;
+
+    let right2 = compact_bools2[index_right];
+    compact_bools2[index_right] += compact_bools2[index_left];
+    compact_bools2[index_left] = right2;
+}
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_terminated_scatter(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    if thread_index >= arrayLength(&rays) { return; }
+
+    var ray_index: u32;
+
+    let ray = rays[thread_index];
+    if ray.terminated == 0 {
+        ray_index = compact_bools1[thread_index];
+    } else {
+        ray_index = compact_bools2[thread_index] + compact_bools1[arrayLength(&compact_bools1) - 1];
+    }
+
+    compact_out[ray_index] = ray;
+}
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_terminated_copy_back(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    if thread_index >= arrayLength(&rays) { return; }
+
+    rays[thread_index] = compact_out[thread_index];
 }
 
 fn get_aspect_vec() -> vec2f {
