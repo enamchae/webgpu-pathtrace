@@ -62,6 +62,10 @@ var<storage, read_write> radix_bools: array<vec4u>;
 @binding(9)
 var<storage, read_write> material_out: array<IntersectionResult>;
 
+@group(0)
+@binding(10)
+var env_texture: texture_2d<f32>;
+
 
 struct Ray {
     origin: vec3f,
@@ -612,8 +616,17 @@ fn diffuse_reflect(normal: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
 }
 
 fn env(dir: vec3f) -> vec3f {
-    return vec3f(0.3, 0.45, 0.5) + (0.5 * dir * vec3f(1, -1, 1));
-    // return vec3f(0.97, 0.95, 1);
+    let u = atan2(dir.z, dir.x) / REV + 0.5;
+    let v = 1 - acos(dir.y) / PI;
+    
+    let dim = textureDimensions(env_texture);
+    let uv = vec2i(
+        i32(u * f32(dim.x)) % i32(dim.x),
+        i32(v * f32(dim.y)) % i32(dim.y),
+    );
+    
+    let col = textureLoad(env_texture, uv, 0).rgb;
+    return col * col;
 }
 
 fn fresnel(normal: vec3f, dir: vec3f, ior_1: f32, ior_2: f32) -> f32 {

@@ -24,6 +24,7 @@ let materialsBuffer: GPUBuffer;
 let bindGroupLayout: GPUBindGroupLayout;
 let renderPipeline: GPURenderPipeline;
 let uniformsBuffer: GPUBuffer;
+let envTexture: GPUTexture;
 let rerender: ((width: number, height: number) => Promise<void>) | null = null;
 
 
@@ -90,8 +91,15 @@ onMount(async () => {
 
     status = "loading scene file";
 
-
-    const {triangles, materials} = await loadGltfScene("/cup.glb");
+    const [
+        envBitmap,
+        {triangles, materials},
+    ] = await Promise.all([
+        fetch("/minedump_flats_2k.png")
+            .then(response => response.blob())
+            .then(createImageBitmap),
+        loadGltfScene("/cup.glb"),
+    ]);
     store.nTriangles = triangles.byteLength / 48;
 
     
@@ -109,6 +117,19 @@ onMount(async () => {
     });
 
     device.queue.writeBuffer(materialsBuffer, 0, materials);
+
+
+    envTexture = device.createTexture({
+        size: [envBitmap.width, envBitmap.height, 1],
+        format: "rgba8unorm",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+
+    device.queue.copyExternalImageToTexture(
+        { source: envBitmap },
+        { texture: envTexture },
+        [envBitmap.width, envBitmap.height, 1],
+    );
 
 
 
@@ -198,6 +219,14 @@ onMount(async () => {
                 visibility: GPUShaderStage.COMPUTE,
                 buffer: {
                     type: "storage",
+                },
+            },
+
+            {
+                binding: 10,
+                visibility: GPUShaderStage.COMPUTE,
+                texture: {
+                    sampleType: "float",
                 },
             },
         ],
@@ -409,6 +438,7 @@ onMount(async () => {
         trianglesBuffer,
         materialsBuffer,
         uniformsBuffer,
+        envTexture,
 
         renderPipeline,
         computeFullPipeline,

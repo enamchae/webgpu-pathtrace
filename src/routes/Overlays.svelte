@@ -182,7 +182,7 @@ let {
     gap: 0.5rem;
 
     background: oklch(0.1 0.02 170 / 0.2);
-    backdrop-filter: blur(8px);
+    backdrop-filter: blur(4px);
     box-shadow: 0 0.5rem 1rem oklch(0.2 0.06 230 / 0.2);
     border-radius: 1.5rem / 1.25rem;
     color: oklch(1 0 0);
