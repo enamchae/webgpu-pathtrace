@@ -171,6 +171,14 @@ let {
     gap: 1rem;
 
     pointer-events: none;
+
+    opacity: 0.25;
+
+    transition: opacity 0.2s ease-in-out;
+
+    &:hover {
+        opacity: 1;
+    }
 }
 
 .panel {
@@ -181,7 +189,7 @@ let {
     flex-direction: column;
     gap: 0.5rem;
 
-    background: oklch(0.1 0.02 170 / 0.2);
+    background: oklch(0.1 0.02 170 / 0.5);
     backdrop-filter: blur(4px);
     box-shadow: 0 0.5rem 1rem oklch(0.2 0.06 230 / 0.2);
     border-radius: 1.5rem / 1.25rem;

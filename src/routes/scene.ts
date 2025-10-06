@@ -47,8 +47,8 @@ export const loadGltfScene = async (url: string) => {
 
 
         const boxTriangleIndex = triOffset / 48;
-        const min = [Infinity, Infinity, Infinity];
-        const max = [-Infinity, -Infinity, -Infinity];
+        const boxMin = [Infinity, Infinity, Infinity];
+        const boxMax = [-Infinity, -Infinity, -Infinity];
 
 
         const pos = child.geometry.attributes.position.array;
@@ -64,31 +64,42 @@ export const loadGltfScene = async (url: string) => {
             new Float32Array(triangles, triOffset + 32).set(v2);
             new Uint32Array(triangles, triOffset + 12).set([materialMap.get(child.material)!]);
 
-            min[0] = Math.min(min[0], v0[0], v1[0], v2[0]);
-            min[1] = Math.min(min[1], v0[1], v1[1], v2[1]);
-            min[2] = Math.min(min[2], v0[2], v1[2], v2[2]);
-            max[0] = Math.max(max[0], v0[0], v1[0], v2[0]);
-            max[1] = Math.max(max[1], v0[1], v1[1], v2[1]);
-            max[2] = Math.max(max[2], v0[2], v1[2], v2[2]);
+            boxMin[0] = Math.min(boxMin[0], v0[0], v1[0], v2[0]);
+            boxMin[1] = Math.min(boxMin[1], v0[1], v1[1], v2[1]);
+            boxMin[2] = Math.min(boxMin[2], v0[2], v1[2], v2[2]);
+            boxMax[0] = Math.max(boxMax[0], v0[0], v1[0], v2[0]);
+            boxMax[1] = Math.max(boxMax[1], v0[1], v1[1], v2[1]);
+            boxMax[2] = Math.max(boxMax[2], v0[2], v1[2], v2[2]);
 
             triOffset += 48;
         }
 
         new Float32Array(boundingBoxes, boundingBoxOffset).set([
-            min[0], min[1], min[2], 0,
-            max[0], max[1], max[2],
+            boxMin[0], boxMin[1], boxMin[2], 0,
+            boxMax[0], boxMax[1], boxMax[2],
         ]);
         new Uint32Array(boundingBoxes, boundingBoxOffset + 28).set([boxTriangleIndex]);
-        
+
         boundingBoxOffset += 32;
     });
 
     const materials = new ArrayBuffer(nMaterialBytes);
     for (const [material, i] of materialMap) {
         new Float32Array(materials, i * 48).set([
-            material.color.r, material.color.g, material.color.b, Object.hasOwn(material, "_transmission") ? 1 - material._transmission : 1,
-            material.emissive.r, material.emissive.g, material.emissive.b, 0,
-            material.roughness, 0, 0, 0,
+            material.color.r,
+            material.color.g,
+            material.color.b,
+            Object.hasOwn(material, "_transmission") ? 1 - material._transmission : 1,
+
+            material.emissive.r * material.emissiveIntensity,
+            material.emissive.g * material.emissiveIntensity,
+            material.emissive.b * material.emissiveIntensity,
+            [material.emissiveIntensity, material.emissive.r, material.emissive.g, material.emissive.b].every(c => c > 0) ? 1 : 0,
+
+            material.roughness,
+            0,
+            0,
+            0,
         ]);
     }
     
