@@ -20,7 +20,8 @@ var<storage, read> triangles: array<Triangle>;
 
 
 struct Material {
-    diffuse: vec4f,
+    diffuse: vec3f,
+    transmision: f32,
     emissive: vec4f,
     roughness: f32,
 }
@@ -555,13 +556,14 @@ fn intersect(origin: vec3f, dir: vec3f, thread_index: u32) -> IntersectionResult
     return IntersectionResult(min_result, closest_obj_index, closest_material_index, found, 0, thread_index);
 }
 
-fn xxhash32_3d(p: vec3u) -> u32 {
+// https://xxhash.com/
+fn xxhash_3d(p: vec3u) -> u32 {
     const p2 = 2246822519u;
     const p3 = 3266489917u;
     const p4 = 668265263u;
     const p5 = 374761393u;
 
-    var h32 =  p.z + p5 + p.x*p3;
+    var h32 = p.z + p5 + p.x * p3;
     h32 = p4 * ((h32 << 17) | (h32 >> (32 - 17)));
     h32 += p.y * p3;
     h32 = p4 * ((h32 << 17) | (h32 >> (32 - 17)));
@@ -570,8 +572,8 @@ fn xxhash32_3d(p: vec3u) -> u32 {
     return h32^(h32 >> 16);
 }
 
-fn rand33(f: vec3f) -> vec3f {
-    let hash = f32(xxhash32_3d(bitcast<vec3u>(f)));
+fn rand_3d(f: vec3f) -> vec3f {
+    let hash = f32(xxhash_3d(bitcast<vec3u>(f)));
     
     return vec3f(hash, hash, hash) / f32(0xFFFFFFFF);
 }
@@ -602,7 +604,7 @@ fn sample_cosine_weighted_hemisphere(uniform_samples: vec2f, normal: vec3f) -> v
 }
 
 fn diffuse_reflect(normal: vec3f, dir: vec3f, seed: vec3f) -> vec3f {
-    let uniform_samples = rand33(seed);
+    let uniform_samples = rand_3d(seed);
 
     let hemisphere_point = sample_cosine_weighted_hemisphere(uniform_samples.xy, normal * -sign(dot(dir, normal)));
 
@@ -614,10 +616,14 @@ fn env(dir: vec3f) -> vec3f {
     // return vec3f(0.97, 0.95, 1);
 }
 
-fn slerp(a: vec3f, b: vec3f, t: f32) -> vec3f {
-    let angle = acos(dot(a, b));
+fn fresnel(normal: vec3f, dir: vec3f, ior_1: f32, ior_2: f32) -> f32 {
+    let sqrt_r0 = (ior_1 - ior_2) / (ior_1 + ior_2);
+    let r0 = sqrt_r0 * sqrt_r0;
 
-    return (sin((1 - t) * angle) * a + sin(t * angle) * b) / sin(angle);
+    let one_cos = 1 - dot(normal, dir);
+    let one_cos_2 = one_cos * one_cos;
+
+    return r0 + (1 - r0) * one_cos_2 * one_cos_2 * one_cos;
 }
 
 fn shade_ray(result: IntersectionResult, ray: Ray) -> Ray {
@@ -625,42 +631,42 @@ fn shade_ray(result: IntersectionResult, ray: Ray) -> Ray {
         return terminated_ray_with_col(ray.linear_col * env(ray.dir), ray.thread_index, result.material_index);
     }
 
-    let uniform_samples = rand33(ray.seed + 0.1);
+    let uniform_samples = rand_3d(ray.seed + 0.1);
     let material = materials[result.material_index];
     if material.emissive.a > 0 {
         return terminated_ray_with_col(ray.linear_col * material.emissive.rgb, ray.thread_index, result.material_index);
     }
 
 
-    let slerp_fac = material.roughness * (1 + (uniform_samples.x * 2 - 1) * (1 - material.roughness));
+    let ior_1 = 1.;
+    let ior_2 = 1.5;
+
+    let is_entering_material = dot(ray.dir, result.intersection.normal) < 0;
+    let effective_normal = result.intersection.normal * select(-1., 1., is_entering_material);
+    
+    let reflective_diffuse_dir = diffuse_reflect(result.intersection.normal, ray.dir, ray.seed);
+
+    let reflectance = fresnel(effective_normal, ray.dir, ior_1, ior_2);
 
     let new_origin = result.intersection.point;
     var new_dir: vec3f;
-    if uniform_samples.y < material.diffuse.a {
-        let diffuse_dir = diffuse_reflect(result.intersection.normal, ray.dir, ray.seed);
-        let glossy_dir = reflect(ray.dir, result.intersection.normal);
-        
-        new_dir = slerp(glossy_dir, diffuse_dir, slerp_fac);
-    } else {
-        let diffuse_dir = diffuse_reflect(-result.intersection.normal, -ray.dir, ray.seed);
+    if uniform_samples.x > reflectance || uniform_samples.y < material.transmision {
+        let reflected_dir = reflect(ray.dir, result.intersection.normal);
 
-        var ior_ratio = 1 / 1.5;
-        var refraction_normal = result.intersection.normal;
-        if dot(ray.dir, result.intersection.normal) > 0 {
-            ior_ratio = ior_ratio;
-            refraction_normal = -refraction_normal;
-        }
-        let glossy_dir = refract(ray.dir, refraction_normal, ior_ratio);
+        new_dir = select(reflective_diffuse_dir, reflected_dir, material.roughness < 0.5);
+    } else {
+        let ior_ratio = select(ior_1 / ior_2, ior_2 / ior_1, is_entering_material);
+        let refracted_dir = refract(ray.dir, effective_normal, ior_ratio);
         
-        new_dir = slerp(glossy_dir, diffuse_dir, slerp_fac);
+        new_dir = select(-reflective_diffuse_dir, normalize(refracted_dir), material.roughness < 0.5 && length(refracted_dir) > 0);
     }
 
     return Ray(new_origin, new_dir, result.material_index, ray.seed, ray.thread_index, ray.linear_col * material.diffuse.rgb, 0);
 }
 
 fn set_up_sample(uv: vec2f, nth_pass: u32, index: u32) -> Ray {
-    let supersample_grid_jitter = rand33(vec3f(uv, f32(nth_pass))).xy;
-    let dof_jitter_params = rand33(vec3f(uv, f32(nth_pass)) - 5.9).xy; // (r^2, theta)
+    let supersample_grid_jitter = rand_3d(vec3f(uv, f32(nth_pass))).xy;
+    let dof_jitter_params = rand_3d(vec3f(uv, f32(nth_pass)) - 5.9).xy; // (r^2, theta)
 
     let dof_radius = sqrt(dof_jitter_params.x) * uniforms.dof_radius;
     let dof_angle = REV * dof_jitter_params.y;

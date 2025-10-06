@@ -18,8 +18,6 @@ const vec = (array: Float32Array, mat: Matrix4) => {
 export const loadGltfScene = async (url: string) => {
     const gltf: {scene: Scene} = await new Promise((resolve, reject) => new GLTFLoader().load(url, resolve));
 
-    console.log(gltf);
-    
     let nTriBytes = 0;
     let nMaterialBytes = 0;
 
