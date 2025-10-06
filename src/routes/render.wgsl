@@ -386,13 +386,17 @@ fn comp_terminated_scatter(
     let thread_index = global_id.x;
     if thread_index >= arrayLength(&rays) { return; }
 
-
     let ray = rays[thread_index];
-    let sum_off_by_1 = arrayLength(&rays) == arrayLength(&compact_bools) && rays[arrayLength(&rays) - 1].terminated == 0;
+    
+
+    let total_terminated = compact_bools[arrayLength(&compact_bools) - 1].x;
+    let last_ray_terminated = select(0u, 1u, arrayLength(&rays) == arrayLength(&compact_bools) && rays[arrayLength(&rays) - 1].terminated == 1);
+    let final_total_terminated = total_terminated + last_ray_terminated;
+
 
     let ray_index = select(
+        compact_bools[thread_index].y + final_total_terminated,
         compact_bools[thread_index].x,
-        compact_bools[thread_index].y + compact_bools[arrayLength(&compact_bools) - 1].x + select(0u, 1u, sum_off_by_1),
         ray.terminated == 1,
     );
 

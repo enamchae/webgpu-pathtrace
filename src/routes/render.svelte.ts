@@ -251,7 +251,7 @@ export const createRenderer = ({
                         device.queue.submit([passCommandEncoder.finish()]);
                         
 
-                        for (let depth = 0; depth < 3; depth++) {
+                        for (let depth = 0; depth < store.nMaxBounces; depth++) {
                             const bounceCommandEncoder = device.createCommandEncoder();
 
                             const bouncePassEncoder = bounceCommandEncoder.beginComputePass();
