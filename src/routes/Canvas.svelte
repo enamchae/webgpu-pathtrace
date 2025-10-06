@@ -23,13 +23,7 @@ let trianglesBuffer: GPUBuffer;
 let materialsBuffer: GPUBuffer;
 let bindGroupLayout: GPUBindGroupLayout;
 let renderPipeline: GPURenderPipeline;
-let computeBeginPassPipeline: GPUComputePipeline;
-let computeIntersectPipeline: GPUComputePipeline;
-let computeShadePipeline: GPUComputePipeline;
-let computeFinishPassPipeline: GPUComputePipeline;
-let computeSortIntersectionsPipeline: GPUComputePipeline;
 let uniformsBuffer: GPUBuffer;
-let storedBuffer: GPUBuffer;
 let rerender: ((width: number, height: number) => Promise<void>) | null = null;
 
 
@@ -186,14 +180,6 @@ onMount(async () => {
                     type: "storage",
                 },
             },
-
-            {
-                binding: 8,
-                visibility: GPUShaderStage.COMPUTE,
-                buffer: {
-                    type: "storage",
-                },
-            },
         ],
     });
 
@@ -305,7 +291,7 @@ onMount(async () => {
         },
     });
 
-    computeBeginPassPipeline = device.createComputePipeline({
+    const computeBeginPassPipeline = device.createComputePipeline({
         layout: pipelineLayout,
 
         compute: {
@@ -315,7 +301,7 @@ onMount(async () => {
     });
 
 
-    computeIntersectPipeline = device.createComputePipeline({
+    const computeIntersectPipeline = device.createComputePipeline({
         layout: pipelineLayout,
 
         compute: {
@@ -325,7 +311,7 @@ onMount(async () => {
     });
 
 
-    computeShadePipeline = device.createComputePipeline({
+    const computeShadePipeline = device.createComputePipeline({
         layout: pipelineLayout,
 
         compute: {
@@ -335,22 +321,12 @@ onMount(async () => {
     });
 
 
-    computeFinishPassPipeline = device.createComputePipeline({
+    const computeFinishPassPipeline = device.createComputePipeline({
         layout: pipelineLayout,
 
         compute: {
             module: renderShaderModule,
             entryPoint: "comp_finish_pass",
-        },
-    });
-
-
-    computeSortIntersectionsPipeline = device.createComputePipeline({
-        layout: pipelineLayout,
-
-        compute: {
-            module: renderShaderModule,
-            entryPoint: "comp_sort_intersections",
         },
     });
 
@@ -372,6 +348,10 @@ onMount(async () => {
         renderPipeline,
         computeFullPipeline,
         computeSinglePassPipeline,
+        computeBeginPassPipeline,
+        computeIntersectPipeline,
+        computeShadePipeline,
+        computeFinishPassPipeline,
         computeCompactBoolsPipeline,
         computeCompactUpsweepPipeline,
         computeCompactDownsweepPipeline,

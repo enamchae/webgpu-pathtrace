@@ -53,11 +53,24 @@ let {
                     <input
                         type="radio"
                         name="render-method"
+                        value={RenderTiming.afterEverySampleCoherent}
+                        bind:group={store.renderTiming}
+                    />
+
+                    After every sample (coherent)
+                </label>
+            </div>
+
+            <div>
+                <label>
+                    <input
+                        type="radio"
+                        name="render-method"
                         value={RenderTiming.afterEverySample}
                         bind:group={store.renderTiming}
                     />
 
-                    after every sample
+                    After every sample
                 </label>
             </div>
 
@@ -70,7 +83,7 @@ let {
                         bind:group={store.renderTiming}
                     />
 
-                    after all samples
+                    After all samples
                 </label>
             </div>
         </div>

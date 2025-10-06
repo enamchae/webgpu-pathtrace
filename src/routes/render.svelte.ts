@@ -16,6 +16,10 @@ export const createRenderer = ({
     renderPipeline,
     computeFullPipeline,
     computeSinglePassPipeline,
+    computeBeginPassPipeline,
+    computeIntersectPipeline,
+    computeShadePipeline,
+    computeFinishPassPipeline,
     computeCompactBoolsPipeline,
     computeCompactUpsweepPipeline,
     computeCompactDownsweepPipeline,
@@ -38,11 +42,16 @@ export const createRenderer = ({
     renderPipeline: GPURenderPipeline,
     computeFullPipeline: GPUComputePipeline,
     computeSinglePassPipeline: GPUComputePipeline,
+    computeBeginPassPipeline: GPUComputePipeline,
+    computeIntersectPipeline: GPUComputePipeline,
+    computeShadePipeline: GPUComputePipeline,
+    computeFinishPassPipeline: GPUComputePipeline,
     computeCompactBoolsPipeline: GPUComputePipeline,
     computeCompactUpsweepPipeline: GPUComputePipeline,
     computeCompactDownsweepPipeline: GPUComputePipeline,
     computeCompactScatterPipeline: GPUComputePipeline,
     computeCompactCopyBackPipeline: GPUComputePipeline,
+
 
     onStatusChange: (status: string) => void,
 }) => {
@@ -79,17 +88,21 @@ export const createRenderer = ({
     let intersectionsBuffer: GPUBuffer | null = null;
     let raysBuffer: GPUBuffer | null = null;
 
-    let compactBools1Buffer: GPUBuffer | null = null;
-    let compactBools2Buffer: GPUBuffer | null = null;
+    let compactBoolsBuffer: GPUBuffer | null = null;
     let compactOutBuffer: GPUBuffer | null = null;
+
+    const destroyBuffers = () => {
+        outputBuffer?.destroy();
+        intersectionsBuffer?.destroy();
+        raysBuffer?.destroy();
+        compactBoolsBuffer?.destroy();
+        compactOutBuffer?.destroy();
+    };
 
     const createOutputBuffers = (nPixels: number) => {
         if (nPixels === lastNPixels) return;
     
-        outputBuffer?.destroy();
-        intersectionsBuffer?.destroy();
-        raysBuffer?.destroy();
-    
+        destroyBuffers();
     
         outputBuffer = device.createBuffer({
             size: nPixels * 16,
@@ -108,13 +121,8 @@ export const createRenderer = ({
 
         const nCeil = 1 << ilog2ceil(nPixels);
 
-        compactBools1Buffer = device.createBuffer({
-            size: nCeil * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-
-        compactBools2Buffer = device.createBuffer({
-            size: nCeil * 4,
+        compactBoolsBuffer = device.createBuffer({
+            size: nCeil * 8,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
 
@@ -183,19 +191,12 @@ export const createRenderer = ({
                 {
                     binding: 6,
                     resource: {
-                        buffer: compactBools1Buffer!,
+                        buffer: compactBoolsBuffer!,
                     },
                 },
     
                 {
                     binding: 7,
-                    resource: {
-                        buffer: compactBools2Buffer!,
-                    },
-                },
-    
-                {
-                    binding: 8,
                     resource: {
                         buffer: compactOutBuffer!,
                     },
@@ -230,118 +231,184 @@ export const createRenderer = ({
         store.cumulativeSampleTime = 0;
         const start = performance.now();
     
-        switch (store.renderTiming) {
-            case RenderTiming.afterEverySample: {
-                for (let i = 0; i < store.nTargetSamples; i++) {
-                    device.queue.writeBuffer(uniformsBuffer, 8, new Uint32Array([i]));
-    
-    
-                    const passCommandEncoder = device.createCommandEncoder();
-    
-                    const computePassEncoder = passCommandEncoder.beginComputePass();
+        try {
+            switch (store.renderTiming) {
+                case RenderTiming.afterEverySampleCoherent: {
+                    for (let i = 0; i < store.nTargetSamples; i++) {
+                        device.queue.writeBuffer(uniformsBuffer, 8, new Uint32Array([i]));
+        
+        
+                        const passCommandEncoder = device.createCommandEncoder();
+        
+                        const computePassEncoder = passCommandEncoder.beginComputePass();
+                        computePassEncoder.setBindGroup(0, bindGroup);
+
+                        computePassEncoder.setPipeline(computeBeginPassPipeline);
+                        computePassEncoder.dispatchWorkgroups(Math.ceil(nPixels / 256));
+
+                        computePassEncoder.end();
+
+                        device.queue.submit([passCommandEncoder.finish()]);
+                        
+
+                        for (let depth = 0; depth < 3; depth++) {
+                            const bounceCommandEncoder = device.createCommandEncoder();
+
+                            const bouncePassEncoder = bounceCommandEncoder.beginComputePass();
+                            bouncePassEncoder.setBindGroup(0, bindGroup);
+
+                            bouncePassEncoder.setPipeline(computeIntersectPipeline);
+                            bouncePassEncoder.dispatchWorkgroups(Math.ceil(nPixels / 256));
+
+                            bouncePassEncoder.setPipeline(computeShadePipeline);
+                            bouncePassEncoder.dispatchWorkgroups(Math.ceil(nPixels / 256));
+
+                            bouncePassEncoder.setPipeline(computeCompactBoolsPipeline);
+                            bouncePassEncoder.dispatchWorkgroups(Math.ceil(nCeil / 256));
+
+                            bouncePassEncoder.end();
+
+                            device.queue.submit([bounceCommandEncoder.finish()]);
+
+
+                            for (let step = 2; step <= nCeil; step <<= 1) {
+                                device.queue.writeBuffer(uniformsBuffer, 96, new Uint32Array([step]));
+            
+                                const upsweepCommandEncoder = device.createCommandEncoder();
+        
+                                const computeUpsweepEncoder = upsweepCommandEncoder.beginComputePass();
+                                computeUpsweepEncoder.setBindGroup(0, bindGroup);
+                                computeUpsweepEncoder.setPipeline(computeCompactUpsweepPipeline);
+                                computeUpsweepEncoder.dispatchWorkgroups(Math.ceil((nCeil / step) / 256));
+                                computeUpsweepEncoder.end();
+            
+                                device.queue.submit([upsweepCommandEncoder.finish()]);
+                            }
+        
+                            device.queue.writeBuffer(compactBoolsBuffer!, (nCeil - 1) * 8, new Uint32Array([0, 0]));
+        
+                        
+                            for (let step = nCeil; step >= 2; step >>= 1) {
+                                device.queue.writeBuffer(uniformsBuffer, 96, new Uint32Array([step]));
+            
+                                const downsweepCommandEncoder = device.createCommandEncoder();
+        
+                                const computeDownsweepEncoder = downsweepCommandEncoder.beginComputePass();
+                                computeDownsweepEncoder.setBindGroup(0, bindGroup);
+                                computeDownsweepEncoder.setPipeline(computeCompactDownsweepPipeline);
+                                computeDownsweepEncoder.dispatchWorkgroups(Math.ceil((nCeil / step) / 256));
+                                computeDownsweepEncoder.end();
+            
+                                device.queue.submit([downsweepCommandEncoder.finish()]);
+                            }
+        
+        
+            
+                            const compactFinishCommandEncoder = device.createCommandEncoder();
+        
+                            const computeCompactFinishEncoder = compactFinishCommandEncoder.beginComputePass();
+                            computeCompactFinishEncoder.setBindGroup(0, bindGroup);
+        
+                            computeCompactFinishEncoder.setPipeline(computeCompactScatterPipeline);
+                            computeCompactFinishEncoder.dispatchWorkgroups(Math.ceil(nCeil / 256));
+        
+                            computeCompactFinishEncoder.setPipeline(computeCompactCopyBackPipeline);
+                            computeCompactFinishEncoder.dispatchWorkgroups(Math.ceil(nCeil / 256));
+        
+                            computeCompactFinishEncoder.end();
+        
+                            device.queue.submit([compactFinishCommandEncoder.finish()]);
+                        }
+
+                        const finishPassCommandEncoder = device.createCommandEncoder();
+
+                        const computeFinishPassEncoder = finishPassCommandEncoder.beginComputePass();
+                        computeFinishPassEncoder.setBindGroup(0, bindGroup);
+                        computeFinishPassEncoder.setPipeline(computeFinishPassPipeline);
+                        computeFinishPassEncoder.dispatchWorkgroups(Math.ceil(nPixels / 256));
+                        computeFinishPassEncoder.end();
+
+                        addRenderPass(finishPassCommandEncoder);
+
+                        device.queue.submit([finishPassCommandEncoder.finish()]);
+
+                    
+
+
+        
+        
+        
+                        await device.queue.onSubmittedWorkDone();
+                        if (currentRenderId !== renderId) return;
+        
+                        store.nRenderedSamples++;
+                        store.cumulativeSampleTime = performance.now() - start;
+        
+                    }
+                    break;
+                }
+
+                case RenderTiming.afterEverySample: {
+                    for (let i = 0; i < store.nTargetSamples; i++) {
+                        device.queue.writeBuffer(uniformsBuffer, 8, new Uint32Array([i]));
+        
+        
+                        const passCommandEncoder = device.createCommandEncoder();
+        
+                        const computePassEncoder = passCommandEncoder.beginComputePass();
+                        computePassEncoder.setBindGroup(0, bindGroup);
+
+                        computePassEncoder.setPipeline(computeSinglePassPipeline);
+                        computePassEncoder.dispatchWorkgroups(Math.ceil(nPixels / 256));
+        
+                        computePassEncoder.end();
+
+                        addRenderPass(passCommandEncoder);
+
+
+                        device.queue.submit([passCommandEncoder.finish()]);
+
+
+                        await device.queue.onSubmittedWorkDone();
+                        if (currentRenderId !== renderId) return;
+        
+                        store.nRenderedSamples++;
+                        store.cumulativeSampleTime = performance.now() - start;
+        
+                    }
+                    break;
+                }
+        
+                case RenderTiming.afterAllSamples: {            
+                    device.queue.writeBuffer(uniformsBuffer, 8, new Uint32Array([0]));
+        
+                    const commandEncoder = device.createCommandEncoder();
+        
+                    const computePassEncoder = commandEncoder.beginComputePass();
                     computePassEncoder.setBindGroup(0, bindGroup);
-
-                    computePassEncoder.setPipeline(computeSinglePassPipeline);
+                    computePassEncoder.setPipeline(computeFullPipeline);
                     computePassEncoder.dispatchWorkgroups(Math.ceil(nPixels / 256));
-    
-                    computePassEncoder.setPipeline(computeCompactBoolsPipeline);
-                    computePassEncoder.dispatchWorkgroups(Math.ceil(nCeil / 256));
-
                     computePassEncoder.end();
-
-                    addRenderPass(passCommandEncoder);
-
-                    device.queue.submit([passCommandEncoder.finish()]);
-
-                
-                    for (let step = 2; step <= nCeil; step <<= 1) {
-                        device.queue.writeBuffer(uniformsBuffer, 96, new Uint32Array([step]));
-    
-                        const upsweepCommandEncoder = device.createCommandEncoder();
-
-                        const computeUpsweepEncoder = upsweepCommandEncoder.beginComputePass();
-                        computeUpsweepEncoder.setBindGroup(0, bindGroup);
-                        computeUpsweepEncoder.setPipeline(computeCompactUpsweepPipeline);
-                        computeUpsweepEncoder.dispatchWorkgroups(Math.ceil((nCeil / step) / 256));
-                        computeUpsweepEncoder.end();
-    
-                        device.queue.submit([upsweepCommandEncoder.finish()]);
-                    }
-
-                    device.queue.writeBuffer(compactBools1Buffer!, (nCeil - 1) * 4, new Uint32Array([0]));
-                    device.queue.writeBuffer(compactBools2Buffer!, (nCeil - 1) * 4, new Uint32Array([0]));
-
-                
-                    for (let step = nCeil; step >= 2; step >>= 1) {
-                        device.queue.writeBuffer(uniformsBuffer, 96, new Uint32Array([step]));
-    
-                        const downsweepCommandEncoder = device.createCommandEncoder();
-
-                        const computeDownsweepEncoder = downsweepCommandEncoder.beginComputePass();
-                        computeDownsweepEncoder.setBindGroup(0, bindGroup);
-                        computeDownsweepEncoder.setPipeline(computeCompactDownsweepPipeline);
-                        computeDownsweepEncoder.dispatchWorkgroups(Math.ceil((nCeil / step) / 256));
-                        computeDownsweepEncoder.end();
-    
-                        device.queue.submit([downsweepCommandEncoder.finish()]);
-                    }
-
-
-    
-                    const compactFinishCommandEncoder = device.createCommandEncoder();
-
-                    const computeCompactFinishEncoder = compactFinishCommandEncoder.beginComputePass();
-                    computeCompactFinishEncoder.setBindGroup(0, bindGroup);
-
-                    computeCompactFinishEncoder.setPipeline(computeCompactScatterPipeline);
-                    computeCompactFinishEncoder.dispatchWorkgroups(Math.ceil(nCeil / 256));
-
-                    computeCompactFinishEncoder.setPipeline(computeCompactCopyBackPipeline);
-                    computeCompactFinishEncoder.dispatchWorkgroups(Math.ceil(nCeil / 256));
-
-                    computeCompactFinishEncoder.end();
-
-                    device.queue.submit([compactFinishCommandEncoder.finish()]);
-
-
-    
-    
-    
+        
+                    addRenderPass(commandEncoder);
+        
+                    device.queue.submit([commandEncoder.finish()]);
+                    
                     await device.queue.onSubmittedWorkDone();
                     if (currentRenderId !== renderId) return;
-    
-                    store.nRenderedSamples++;
+        
+                    store.nRenderedSamples += store.nTargetSamples;
                     store.cumulativeSampleTime = performance.now() - start;
-    
+        
+                    break;
                 }
-                break;
-            }
-    
-            case RenderTiming.afterAllSamples: {            
-                device.queue.writeBuffer(uniformsBuffer, 8, new Uint32Array([0]));
-    
-                const commandEncoder = device.createCommandEncoder();
-    
-                const computePassEncoder = commandEncoder.beginComputePass();
-                computePassEncoder.setBindGroup(0, bindGroup);
-                computePassEncoder.setPipeline(computeFullPipeline);
-                computePassEncoder.dispatchWorkgroups(Math.ceil(nPixels / 256));
-                computePassEncoder.end();
-    
-                addRenderPass(commandEncoder);
-    
-                device.queue.submit([commandEncoder.finish()]);
-                
-                await device.queue.onSubmittedWorkDone();
-                if (currentRenderId !== renderId) return;
-    
-                store.nRenderedSamples += store.nTargetSamples;
-                store.cumulativeSampleTime = performance.now() - start;
-    
-                break;
             }
         }
-    
+
+        finally {
+            // destroyBuffers();
+        }
+        
         onStatusChange("done");
     };
 };

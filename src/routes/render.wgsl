@@ -47,15 +47,15 @@ var<storage, read_write> rays: array<Ray>;
 
 @group(0)
 @binding(6)
-var<storage, read_write> compact_bools1: array<u32>;
+var<storage, read_write> compact_bools: array<vec2u>;
 
 @group(0)
 @binding(7)
-var<storage, read_write> compact_bools2: array<u32>;
+var<storage, read_write> compact_out: array<Ray>;
 
 @group(0)
 @binding(8)
-var<storage, read_write> compact_out: array<Ray>;
+var<storage, read_write> radix_bools: array<vec4u>;
 
 
 struct Ray {
@@ -83,6 +83,7 @@ struct Uniforms {
     camera_transform: mat4x4f, // 96
 
     compact_sweep_step: u32, // 100
+    radix_shift: u32, // 104
 }
 
 struct Stored {
@@ -212,8 +213,122 @@ fn comp_finish_pass(
 
     let ray = rays[thread_index];
     let linear_col = ray.linear_col * f32(ray.terminated);
-    output[ray.thread_index] = mix(output[ray.thread_index], linear_col, 1 / f32(uniforms.nth_pass));
+    output[ray.thread_index] = mix(output[ray.thread_index], linear_col, 1 / f32(uniforms.nth_pass + 1));
 }
+
+fn shift_material_index(material_index: u32) -> u32 {
+    return (material_index >> (uniforms.radix_shift * 2)) & 0x3;
+}
+
+fn one_hot_4(n: u32) -> vec4u {
+    return select(
+        select(
+            select(
+                vec4u(1, 0, 0, 0),
+                vec4u(0, 1, 0, 0),
+                n == 1,
+            ),
+            vec4u(0, 0, 1, 0),
+            n == 2,
+        ),
+        vec4u(0, 0, 0, 1),
+        n == 3,
+    );
+}
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_set_material_bools(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    if thread_index >= arrayLength(&radix_bools) { return; }
+
+    if thread_index >= arrayLength(&intersections) {
+        radix_bools[thread_index] = vec4u(0, 0, 0, 0);
+        return;
+    }
+
+    let material_index_bits = shift_material_index(intersections[thread_index].material_index);
+
+    radix_bools[thread_index] = one_hot_4(material_index_bits);
+}
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_material_upsweep(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    let index_right = (thread_index + 1) * uniforms.compact_sweep_step - 1;
+    if index_right >= arrayLength(&radix_bools) { return; }
+
+    let index_left = index_right - arrayLength(&radix_bools) / 2;
+
+    radix_bools[index_right] += radix_bools[index_left];
+}
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_material_downsweep(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    let index_right = (thread_index + 1) * uniforms.compact_sweep_step - 1;
+    if index_right >= arrayLength(&radix_bools) { return; }
+
+    let index_left = index_right - arrayLength(&radix_bools) / 2;
+
+    let right = radix_bools[index_right];
+    radix_bools[index_right] += radix_bools[index_left];
+    radix_bools[index_left] = right;
+}
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_material_scatter(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    if thread_index >= arrayLength(&intersections) { return; }
+
+
+    let intersection = intersections[thread_index];
+    let material_index_bits = shift_material_index(intersection.material_index);
+
+    let current = radix_bools[thread_index];
+    let offset = radix_bools[arrayLength(&radix_bools) - 1]
+        + one_hot_4(shift_material_index(intersections[arrayLength(&intersections) - 1].material_index))
+            * select(0u, 1u, arrayLength(&intersections) == arrayLength(&radix_bools));
+
+    let intersection_index = select(
+        select(
+            select(
+                current.x,
+                current.y + offset.x,
+                material_index_bits == 1,
+            ),
+            current.z + offset.y + offset.x,
+            material_index_bits == 2,
+        ),
+        current.w + offset.z + offset.y + offset.x,
+        material_index_bits == 3,
+    );
+
+    // radix_out[intersection_index] = intersection;
+}
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_material_copy_back(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    if thread_index >= arrayLength(&rays) { return; }
+
+    rays[thread_index] = compact_out[thread_index];
+}
+
 
 @compute
 @workgroup_size(WORKGROUP_SIZE)
@@ -221,18 +336,16 @@ fn comp_set_terminated_bools(
     @builtin(global_invocation_id) global_id: vec3u,
 ) {
     let thread_index = global_id.x;
-    if thread_index >= arrayLength(&compact_bools1) { return; }
+    if thread_index >= arrayLength(&compact_bools) { return; }
 
     if thread_index >= arrayLength(&rays) {
-        compact_bools1[thread_index] = 0;
-        compact_bools2[thread_index] = 0;
+        compact_bools[thread_index] = vec2u(0, 0);
         return;
     }
 
     let ray = rays[thread_index];
 
-    compact_bools1[thread_index] = ray.terminated;
-    compact_bools2[thread_index] = 1 - ray.terminated;
+    compact_bools[thread_index] = vec2u(ray.terminated, 1 - ray.terminated);
 }
 
 @compute
@@ -242,12 +355,11 @@ fn comp_terminated_upsweep(
 ) {
     let thread_index = global_id.x;
     let index_right = (thread_index + 1) * uniforms.compact_sweep_step - 1;
-    if index_right >= arrayLength(&compact_bools1) { return; }
+    if index_right >= arrayLength(&compact_bools) { return; }
 
-    let index_left = index_right - arrayLength(&compact_bools1) / 2;
+    let index_left = index_right - uniforms.compact_sweep_step / 2;
 
-    compact_bools1[index_right] += compact_bools1[index_left];
-    compact_bools2[index_right] += compact_bools2[index_left];
+    compact_bools[index_right] += compact_bools[index_left];
 }
 
 @compute
@@ -257,17 +369,13 @@ fn comp_terminated_downsweep(
 ) {
     let thread_index = global_id.x;
     let index_right = (thread_index + 1) * uniforms.compact_sweep_step - 1;
-    if index_right >= arrayLength(&compact_bools1) { return; }
+    if index_right >= arrayLength(&compact_bools) { return; }
 
-    let index_left = index_right - arrayLength(&compact_bools1) / 2;
+    let index_left = index_right - uniforms.compact_sweep_step / 2;
 
-    let right1 = compact_bools1[index_right];
-    compact_bools1[index_right] += compact_bools1[index_left];
-    compact_bools1[index_left] = right1;
-
-    let right2 = compact_bools2[index_right];
-    compact_bools2[index_right] += compact_bools2[index_left];
-    compact_bools2[index_left] = right2;
+    let right = compact_bools[index_right];
+    compact_bools[index_right] += compact_bools[index_left];
+    compact_bools[index_left] = right;
 }
 
 @compute
@@ -278,14 +386,15 @@ fn comp_terminated_scatter(
     let thread_index = global_id.x;
     if thread_index >= arrayLength(&rays) { return; }
 
-    var ray_index: u32;
 
     let ray = rays[thread_index];
-    if ray.terminated == 0 {
-        ray_index = compact_bools1[thread_index];
-    } else {
-        ray_index = compact_bools2[thread_index] + compact_bools1[arrayLength(&compact_bools1) - 1];
-    }
+    let sum_off_by_1 = arrayLength(&rays) == arrayLength(&compact_bools) && rays[arrayLength(&rays) - 1].terminated == 0;
+
+    let ray_index = select(
+        compact_bools[thread_index].x,
+        compact_bools[thread_index].y + compact_bools[arrayLength(&compact_bools) - 1].x + select(0u, 1u, sum_off_by_1),
+        ray.terminated == 1,
+    );
 
     compact_out[ray_index] = ray;
 }
@@ -317,54 +426,6 @@ fn get_square_centered_uv(thread_index: u32) -> vec2f {
     uv.y *= -1;
 
     return uv * get_aspect_vec();
-}
-
-
-@compute
-@workgroup_size(WORKGROUP_SIZE)
-fn comp_sort_intersections(
-    @builtin(global_invocation_id) global_id: vec3u,
-) {
-    let n_intersections = uniforms.resolution.x * uniforms.resolution.y;
-    let thread_index = global_id.x;
-
-
-    // odd even sort
-
-    var left_intersection: IntersectionResult;
-    var right_intersection: IntersectionResult;
-
-    var pair_index = thread_index * 2 + 1;
-    if pair_index + 1 < n_intersections {
-        left_intersection = intersections[pair_index];
-        right_intersection = intersections[pair_index + 1];
-
-        var should_swap = left_intersection.terminated > right_intersection.terminated;
-        should_swap = should_swap || (left_intersection.terminated == right_intersection.terminated && left_intersection.found > right_intersection.found);
-        should_swap = should_swap || (left_intersection.terminated == right_intersection.terminated && left_intersection.found == right_intersection.found && left_intersection.material_index > right_intersection.material_index);
-
-        if should_swap {
-            intersections[pair_index] = right_intersection;
-            intersections[pair_index + 1] = left_intersection;
-        }
-    }
-
-    storageBarrier();
-
-    pair_index = thread_index * 2;
-    if pair_index + 1 < n_intersections {
-        left_intersection = intersections[pair_index];
-        right_intersection = intersections[pair_index + 1];
-        
-        var should_swap = left_intersection.terminated > right_intersection.terminated;
-        should_swap = should_swap || (left_intersection.terminated == right_intersection.terminated && left_intersection.found > right_intersection.found);
-        should_swap = should_swap || (left_intersection.terminated == right_intersection.terminated && left_intersection.found == right_intersection.found && left_intersection.material_index > right_intersection.material_index);
-
-        if should_swap {
-            intersections[pair_index] = right_intersection;
-            intersections[pair_index + 1] = left_intersection;
-        }
-    }
 }
 
 

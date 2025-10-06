@@ -1,6 +1,7 @@
 export enum RenderTiming {
     afterAllSamples,
     afterEverySample,
+    afterEverySampleCoherent,
 }
 
 export enum SpatialHierarchy {
