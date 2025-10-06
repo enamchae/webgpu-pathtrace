@@ -33,7 +33,7 @@ let computeFinishPassPipeline: GPUComputePipeline;
 let computeSortIntersectionsPipeline: GPUComputePipeline;
 let uniformsBuffer: GPUBuffer;
 let storedBuffer: GPUBuffer;
-let rerender: (width: number, height: number) => Promise<void>;
+let rerender: ((width: number, height: number) => Promise<void>) | null = null;
 
 
 const gpuReady = Promise.withResolvers<void>();

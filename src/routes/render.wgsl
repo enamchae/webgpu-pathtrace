@@ -482,7 +482,14 @@ fn shade_ray(result: IntersectionResult, ray: Ray) -> Ray {
         new_dir = slerp(glossy_dir, diffuse_dir, slerp_fac);
     } else {
         let diffuse_dir = diffuse_reflect(-result.intersection.normal, -ray.dir, ray.seed);
-        let glossy_dir = refract(ray.dir, result.intersection.normal, 1.5);
+
+        var ior_ratio = 1 / 1.5;
+        var refraction_normal = result.intersection.normal;
+        if dot(ray.dir, result.intersection.normal) > 0 {
+            ior_ratio = ior_ratio;
+            refraction_normal = -refraction_normal;
+        }
+        let glossy_dir = refract(ray.dir, refraction_normal, ior_ratio);
         
         new_dir = slerp(glossy_dir, diffuse_dir, slerp_fac);
     }
