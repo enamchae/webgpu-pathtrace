@@ -250,7 +250,6 @@ onMount(async () => {
         },
     });
 
-
     computeBeginPassPipeline = device.createComputePipeline({
         layout: device.createPipelineLayout({
             bindGroupLayouts: [bindGroupLayout],
@@ -317,29 +316,41 @@ onMount(async () => {
 });
 
 
+let lastNElements = -1;
+let outputBuffer: GPUBuffer | null = null;
+let intersectionsBuffer: GPUBuffer | null = null;
+let raysBuffer: GPUBuffer | null = null;
+const createOutputBuffers = (nElements: number) => {
+    if (nElements === lastNElements) return;
+
+    outputBuffer?.destroy();
+    intersectionsBuffer?.destroy();
+    raysBuffer?.destroy();
+
+
+    outputBuffer = device.createBuffer({
+        size: nElements * 16,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    intersectionsBuffer = device.createBuffer({
+        size: nElements * 64,
+        usage: GPUBufferUsage.STORAGE,
+    });
+
+    raysBuffer = device.createBuffer({
+        size: nElements * 64,
+        usage: GPUBufferUsage.STORAGE,
+    });
+};
 
 let renderId = 0n;
 const hardRerender = async (nextWidth: number, nextHeight: number) => {
     renderId++;
     const currentRenderId = renderId;
 
-    const N_ELEMENTS = nextWidth * nextHeight;
-
-    const outputBuffer = device.createBuffer({
-        size: N_ELEMENTS * 16,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-
-
-    const intersectionsBuffer = device.createBuffer({
-        size: N_ELEMENTS * 64,
-        usage: GPUBufferUsage.STORAGE,
-    });
-
-    const raysBuffer = device.createBuffer({
-        size: N_ELEMENTS * 64,
-        usage: GPUBufferUsage.STORAGE,
-    });
+    const nElements = nextWidth * nextHeight;
+    createOutputBuffers(nElements);
 
 
     bindGroup = device.createBindGroup({
@@ -369,21 +380,21 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
             {
                 binding: 3,
                 resource: {
-                    buffer: outputBuffer,
+                    buffer: outputBuffer!,
                 },
             },
 
             {
                 binding: 4,
                 resource: {
-                    buffer: intersectionsBuffer,
+                    buffer: intersectionsBuffer!,
                 },
             },
 
             {
                 binding: 5,
                 resource: {
-                    buffer: raysBuffer,
+                    buffer: raysBuffer!,
                 },
             },
 
@@ -474,7 +485,6 @@ const hardRerender = async (nextWidth: number, nextHeight: number) => {
             break;
         }
     }
-    
 
     status = "done";
 };
@@ -504,7 +514,15 @@ const addRenderPass = (commandEncoder: GPUCommandEncoder) => {
 };
 
 $effect(() => {
-    void store.renderTiming, store.supersampleRate, store.nSamplesPerGridCell, store.nMaxBounces, store.dofDistance, store.dofRadius;
+    void store.renderTiming;
+    void store.supersampleRate;
+    void store.nSamplesPerGridCell;
+    void store.nMaxBounces;
+    void store.dofDistance;
+    void store.dofRadius;
+    void store.orbit.lat;
+    void store.orbit.long;
+    void store.orbit.radius;
     if (!okToRerender) return;
     hardRerender(width, height);
 });
@@ -529,84 +547,10 @@ const onResize = async () => {
     await hardRerender(nextWidth, nextHeight);
 
     waiting = false;
-
-
-
-    /*
-    {
-        const N_ELEMENTS = 1000;
-        const BUFFER_SIZE = N_ELEMENTS * 4;
-
-        const output = device.createBuffer({
-            size: BUFFER_SIZE,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-        });
-
-        const stagingBuffer = device.createBuffer({
-            size: BUFFER_SIZE,
-            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-        });
-
-        const bindGroupLayout = device.createBindGroupLayout({
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: {
-                        type: "storage",
-                    },
-                },
-            ],
-        });
-
-        const bindGroup = device.createBindGroup({
-            layout: bindGroupLayout,
-            entries: [
-                {
-                    binding: 0,
-                    resource: {
-                        buffer: output,
-                    },
-                },
-            ],
-        });
-
-        const computeShaderModule = device.createShaderModule({code: computeShaderSrc});
-
-        const computePipeline = device.createComputePipeline({
-            layout: device.createPipelineLayout({
-                bindGroupLayouts: [bindGroupLayout],
-            }),
-
-            compute: {
-                module: computeShaderModule,
-                entryPoint: "main",
-            },
-        });
-
-        const computeCommandEncoder = device.createCommandEncoder();
-
-        const computePassEncoder = computeCommandEncoder.beginComputePass();
-        computePassEncoder.setPipeline(computePipeline);
-        computePassEncoder.setBindGroup(0, bindGroup);
-        computePassEncoder.dispatchWorkgroups(Math.ceil(N_ELEMENTS / 64));
-        computePassEncoder.end();
-
-        computeCommandEncoder.copyBufferToBuffer(output, 0, stagingBuffer, 0, BUFFER_SIZE);
-
-        device.queue.submit([computeCommandEncoder.finish()]);
-
-
-        await stagingBuffer.mapAsync(GPUMapMode.READ, 0, BUFFER_SIZE);
-
-        const copyArrayBuffer = stagingBuffer.getMappedRange(0, BUFFER_SIZE);
-        const data = copyArrayBuffer.slice();
-        stagingBuffer.unmap();
-        console.log(new Float32Array(data));
-    }
-    */
 };
 onMount(onResize);
+
+let pointerdown = $state(false);
 
 </script>
 
@@ -614,10 +558,23 @@ onMount(onResize);
     {err}
 {/if}
 
-<svelte:window onresize={onResize} />
+<svelte:window
+    onresize={onResize}
+    onpointerup={() => pointerdown = false}
+/>
 
 <canvas
     bind:this={canvas}
     {width}
     {height}
+
+    onpointerdown={() => pointerdown = true}
+    onpointermove={event => {
+        if (!pointerdown) return;
+        store.orbit.long -= event.movementX * 0.01;
+        store.orbit.lat += event.movementY * 0.01;
+    }}
+    onwheel={event => {
+        store.orbit.radius += event.y * 0.01;
+    }}
 ></canvas>
