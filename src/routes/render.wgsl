@@ -60,14 +60,20 @@ struct Ray {
 }
 
 struct Uniforms {
-    resolution: vec2u,
-    nth_pass: u32,
-    supersample_rate: u32,
-    n_samples_per_grid_cell: u32,
-    n_max_bounces: u32,
-    dof_radius: f32,
-    dof_distance: f32,
-    camera_transform: mat4x4f,
+    // 0
+    resolution: vec2u, // 8
+
+    nth_pass: u32, // 12
+
+    supersample_rate: u32, // 16
+    n_samples_per_grid_cell: u32, // 20
+    n_max_bounces: u32, // 24
+    dof_radius: f32, // 28
+    dof_distance: f32, // 32
+    
+    camera_transform: mat4x4f, // 96
+
+    sweep_step: u32, // 100
 }
 
 struct Stored {
@@ -202,6 +208,17 @@ fn comp_finish_pass(
     let ray = rays[thread_index];
     let linear_col = ray.linear_col * f32(ray.terminated);
     output[ray.thread_index] = mix(output[ray.thread_index], linear_col, 1 / f32(stored.nth_pass));
+}
+
+@compute
+@workgroup_size(WORKGROUP_SIZE)
+fn comp_terminated_prefix_upsweep(
+    @builtin(global_invocation_id) global_id: vec3u,
+) {
+    let thread_index = global_id.x;
+    // if index_right >= uniforms.resolution.x * uniforms.resolution.y { return; }
+
+
 }
 
 fn get_aspect_vec() -> vec2f {
