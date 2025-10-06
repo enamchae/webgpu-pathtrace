@@ -96,6 +96,7 @@ export const createRenderer = ({
 
 
     let lastNPixels = -1;
+    let lastDestroy = () => {};
 
     let outputBuffer: GPUBuffer | null = null;
     let intersectionsBuffer: GPUBuffer | null = null;
@@ -106,57 +107,52 @@ export const createRenderer = ({
     let radixBoolsBuffer: GPUBuffer | null = null;
     let materialOutBuffer: GPUBuffer | null = null;
 
-    const destroyBuffers = () => {
-        outputBuffer?.destroy();
-        intersectionsBuffer?.destroy();
-        raysBuffer?.destroy();
-        compactBoolsBuffer?.destroy();
-        compactOutBuffer?.destroy();
-        radixBoolsBuffer?.destroy();
-        materialOutBuffer?.destroy();
-    };
 
     const createOutputBuffers = (nPixels: number) => {
-        if (nPixels === lastNPixels) return;
-
-        destroyBuffers();
-
-        outputBuffer = device.createBuffer({
-            size: nPixels * 16,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-
-        intersectionsBuffer = device.createBuffer({
-            size: nPixels * 64,
-            usage: GPUBufferUsage.STORAGE,
-        });
-
-        raysBuffer = device.createBuffer({
-            size: nPixels * 64,
-            usage: GPUBufferUsage.STORAGE,
-        });
-
         const nCeil = 1 << ilog2ceil(nPixels);
 
-        compactBoolsBuffer = device.createBuffer({
-            size: nCeil * 8,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
+        const buffers = [
+            outputBuffer = device.createBuffer({
+                size: nPixels * 16,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            }),
 
-        compactOutBuffer = device.createBuffer({
-            size: nCeil * 64,
-            usage: GPUBufferUsage.STORAGE,
-        });
+            intersectionsBuffer = device.createBuffer({
+                size: nPixels * 64,
+                usage: GPUBufferUsage.STORAGE,
+            }),
 
-        radixBoolsBuffer = device.createBuffer({
-            size: nCeil * 16,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
+            raysBuffer = device.createBuffer({
+                size: nPixels * 64,
+                usage: GPUBufferUsage.STORAGE,
+            }),
 
-        materialOutBuffer = device.createBuffer({
-            size: nCeil * 64,
-            usage: GPUBufferUsage.STORAGE,
-        });
+            compactBoolsBuffer = device.createBuffer({
+                size: nCeil * 8,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            }),
+
+            compactOutBuffer = device.createBuffer({
+                size: nCeil * 64,
+                usage: GPUBufferUsage.STORAGE,
+            }),
+
+            radixBoolsBuffer = device.createBuffer({
+                size: nCeil * 16,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            }),
+
+            materialOutBuffer = device.createBuffer({
+                size: nCeil * 64,
+                usage: GPUBufferUsage.STORAGE,
+            }),
+        ];
+
+        return () => {
+            for (const buffer of buffers) {
+                buffer.destroy();
+            }
+        };
     };
 
 
@@ -167,7 +163,12 @@ export const createRenderer = ({
 
         const nPixels = nextWidth * nextHeight;
         const nPixelsNextPowerOfTwo = 1 << ilog2ceil(nPixels);
-        createOutputBuffers(nPixels);
+
+        if (nPixels !== lastNPixels) {
+            lastDestroy();
+            lastNPixels = nPixels;
+        }
+        const destroy = lastDestroy = createOutputBuffers(nPixels);
 
 
         bindGroup = device.createBindGroup({
@@ -427,7 +428,7 @@ export const createRenderer = ({
         }
 
         finally {
-            // destroyBuffers();
+            destroy();
         }
 
         onStatusChange("done");
