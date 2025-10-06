@@ -16,15 +16,6 @@ let {
 } = $props();
 
 let canvas: HTMLCanvasElement;
-let device: GPUDevice;
-let context: GPUCanvasContext | null;
-let vertBuffer: GPUBuffer;
-let trianglesBuffer: GPUBuffer;
-let materialsBuffer: GPUBuffer;
-let bindGroupLayout: GPUBindGroupLayout;
-let renderPipeline: GPURenderPipeline;
-let uniformsBuffer: GPUBuffer;
-let envTexture: GPUTexture;
 let rerender: ((width: number, height: number) => Promise<void>) | null = null;
 
 
@@ -45,9 +36,9 @@ onMount(async () => {
         return;
     }
 
-    device = await adapter.requestDevice({
+    const device = await adapter.requestDevice({
         requiredLimits: {
-            maxStorageBuffersPerShaderStage: 9,
+            maxStorageBuffersPerShaderStage: 10,
         }
     });
     if (device === null) {
@@ -55,7 +46,7 @@ onMount(async () => {
         return;
     }
 
-    context = canvas.getContext("webgpu");
+    const context = canvas.getContext("webgpu");
     if (context === null) {
         err = "could not get context";
         return;
@@ -81,7 +72,7 @@ onMount(async () => {
         1, -1, 0, 1,
     ]);
 
-    vertBuffer = device.createBuffer({
+    const vertBuffer = device.createBuffer({
         size: verts.byteLength,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
@@ -93,7 +84,7 @@ onMount(async () => {
 
     const [
         envBitmap,
-        {triangles, materials},
+        {boundingBoxes, triangles, materials},
     ] = await Promise.all([
         fetch("/minedump_flats_2k.png")
             .then(response => response.blob())
@@ -103,7 +94,7 @@ onMount(async () => {
     store.nTriangles = triangles.byteLength / 48;
 
     
-    trianglesBuffer = device.createBuffer({
+    const trianglesBuffer = device.createBuffer({
         size: triangles.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
@@ -111,15 +102,23 @@ onMount(async () => {
     device.queue.writeBuffer(trianglesBuffer, 0, triangles);
 
 
-    materialsBuffer = device.createBuffer({
+    const materialsBuffer = device.createBuffer({
         size: materials.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
     device.queue.writeBuffer(materialsBuffer, 0, materials);
 
+    
+    const boundingBoxesBuffer = device.createBuffer({
+        size: boundingBoxes.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
 
-    envTexture = device.createTexture({
+    device.queue.writeBuffer(boundingBoxesBuffer, 0, boundingBoxes);
+
+
+    const envTexture = device.createTexture({
         size: [envBitmap.width, envBitmap.height, 1],
         format: "rgba8unorm",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
@@ -133,14 +132,14 @@ onMount(async () => {
 
 
 
-    uniformsBuffer = device.createBuffer({
+    const uniformsBuffer = device.createBuffer({
         size: 112,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
 
 
-    bindGroupLayout = device.createBindGroupLayout({
+    const bindGroupLayout = device.createBindGroupLayout({
         entries: [
             {
                 binding: 0,
@@ -176,7 +175,7 @@ onMount(async () => {
 
             {
                 binding: 4,
-                visibility: GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
+                visibility: GPUShaderStage.COMPUTE,
                 buffer: {
                     type: "storage",
                 },
@@ -184,7 +183,7 @@ onMount(async () => {
 
             {
                 binding: 5,
-                visibility: GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
+                visibility: GPUShaderStage.COMPUTE,
                 buffer: {
                     type: "storage",
                 },
@@ -229,11 +228,19 @@ onMount(async () => {
                     sampleType: "float",
                 },
             },
+
+            {
+                binding: 11,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: {
+                    type: "read-only-storage",
+                },
+            },
         ],
     });
 
 
-    renderPipeline = device.createRenderPipeline({
+    const renderPipeline = device.createRenderPipeline({
         vertex: {
             module: renderShaderModule,
             entryPoint: "vert",
@@ -437,6 +444,7 @@ onMount(async () => {
         vertBuffer,
         trianglesBuffer,
         materialsBuffer,
+        boundingBoxesBuffer,
         uniformsBuffer,
         envTexture,
 

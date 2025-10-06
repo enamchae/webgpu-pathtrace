@@ -15,6 +15,7 @@ export const createRenderer = ({
     vertBuffer,
     trianglesBuffer,
     materialsBuffer,
+    boundingBoxesBuffer,
     uniformsBuffer,
     envTexture,
 
@@ -47,6 +48,7 @@ export const createRenderer = ({
     vertBuffer: GPUBuffer,
     trianglesBuffer: GPUBuffer,
     materialsBuffer: GPUBuffer,
+    boundingBoxesBuffer: GPUBuffer,
     uniformsBuffer: GPUBuffer,
     envTexture: GPUTexture,
 
@@ -249,6 +251,13 @@ export const createRenderer = ({
                 {
                     binding: 10,
                     resource: envTexture.createView(),
+                },
+
+                {
+                    binding: 11,
+                    resource: {
+                        buffer: boundingBoxesBuffer,
+                    },
                 },
             ],
         });

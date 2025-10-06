@@ -66,6 +66,16 @@ var<storage, read_write> material_out: array<IntersectionResult>;
 @binding(10)
 var env_texture: texture_2d<f32>;
 
+@group(0)
+@binding(11)
+var<storage, read> bounding_boxes: array<BoundingBox>;
+
+struct BoundingBox {
+    min: vec3f,
+    max: vec3f,
+    triangle_index: u32,
+}
+
 
 struct Ray {
     origin: vec3f,
@@ -539,21 +549,48 @@ struct IntersectionResult {
     thread_index: u32,
 }
 
+// slab method
+fn ray_intersects_bounding_box(box: BoundingBox, origin: vec3f, dir: vec3f) -> bool {
+    let t1 = (box.min - origin) / dir;
+    let t2 = (box.max - origin) / dir;
+    
+    let tmin = min(t1, t2);
+    let tmax = max(t1, t2);
+    
+    let tmin_max = max(max(tmin.x, tmin.y), tmin.z);
+    let tmax_min = min(min(tmax.x, tmax.y), tmax.z);
+    
+    return tmax_min >= tmin_max && tmax_min >= EPSILON;
+}
+
+
 fn intersect(origin: vec3f, dir: vec3f, thread_index: u32) -> IntersectionResult {
     var found = 0u;
     var closest_obj_index = 0u;
     var min_result = DistanceResult(vec3f(0, 0, 0), vec3f(0, 0, 0), INF);
     var closest_material_index = 0u;
 
-    for (var i = 0u; i < arrayLength(&triangles); i++) {
-        let triangle = triangles[i];
-        let result = triangle_distance(triangle, origin, dir);
+    let n_bounding_boxes = arrayLength(&bounding_boxes);
+    for (var i = 0u; i < n_bounding_boxes; i++) {
+        let box = bounding_boxes[i];
+        if !ray_intersects_bounding_box(box, origin, dir) { continue; }
 
-        if result.distance < min_result.distance {
-            found = 1;
-            closest_obj_index = i;
-            min_result = result;
-            closest_material_index = triangle.material_index;
+        let start = box.triangle_index;
+        var end = arrayLength(&triangles);
+        if i != n_bounding_boxes - 1 {
+            end = bounding_boxes[i + 1].triangle_index;
+        }
+
+        for (var j = 0u; j < arrayLength(&triangles); j++) {
+            let triangle = triangles[j];
+            let result = triangle_distance(triangle, origin, dir);
+
+            if result.distance < min_result.distance {
+                found = 1;
+                closest_obj_index = j;
+                min_result = result;
+                closest_material_index = triangle.material_index;
+            }
         }
     }
     
@@ -626,7 +663,11 @@ fn env(dir: vec3f) -> vec3f {
     );
     
     let col = textureLoad(env_texture, uv, 0).rgb;
-    return col * col;
+    return vec3f(
+        pow(col.x, 2.2),
+        pow(col.y, 2.2),
+        pow(col.z, 2.2),
+    );
 }
 
 fn fresnel(normal: vec3f, dir: vec3f, ior_1: f32, ior_2: f32) -> f32 {

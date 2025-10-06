@@ -20,6 +20,7 @@ export const loadGltfScene = async (url: string) => {
 
     let nTriBytes = 0;
     let nMaterialBytes = 0;
+    let nBoundingBoxBytes = 0;
 
     const materialMap = new Map<MeshPhysicalMaterial, number>();
 
@@ -31,25 +32,55 @@ export const loadGltfScene = async (url: string) => {
             materialMap.set(child.material, materialMap.size);
             nMaterialBytes += 48;
         }
+
+        nBoundingBoxBytes += 32;
     });
 
     const triangles = new ArrayBuffer(nTriBytes);
     let triOffset = 0;
+
+    const boundingBoxes = new ArrayBuffer(nBoundingBoxBytes);
+    let boundingBoxOffset = 0;
+
     traverseChildren(gltf.scene, child => {
         if (!Object.hasOwn(child, "geometry")) return;
+
+
+        const boxTriangleIndex = triOffset / 48;
+        const min = [Infinity, Infinity, Infinity];
+        const max = [-Infinity, -Infinity, -Infinity];
+
 
         const pos = child.geometry.attributes.position.array;
         const index = child.geometry.index.array;
 
-
         for (let i = 0; i < index.length; i += 3) {
-            new Float32Array(triangles, triOffset).set(vec(pos.slice(3 * index[i], 3 * index[i] + 3), child.matrix));
-            new Float32Array(triangles, triOffset + 16).set(vec(pos.slice(3 * index[i + 1], 3 * index[i + 1] + 3), child.matrix));
-            new Float32Array(triangles, triOffset + 32).set(vec(pos.slice(3 * index[i + 2], 3 * index[i + 2] + 3), child.matrix));
+            const v0 = vec(pos.slice(3 * index[i], 3 * index[i] + 3), child.matrix);
+            const v1 = vec(pos.slice(3 * index[i + 1], 3 * index[i + 1] + 3), child.matrix);
+            const v2 = vec(pos.slice(3 * index[i + 2], 3 * index[i + 2] + 3), child.matrix);
+
+            new Float32Array(triangles, triOffset).set(v0);
+            new Float32Array(triangles, triOffset + 16).set(v1);
+            new Float32Array(triangles, triOffset + 32).set(v2);
             new Uint32Array(triangles, triOffset + 12).set([materialMap.get(child.material)!]);
+
+            min[0] = Math.min(min[0], v0[0], v1[0], v2[0]);
+            min[1] = Math.min(min[1], v0[1], v1[1], v2[1]);
+            min[2] = Math.min(min[2], v0[2], v1[2], v2[2]);
+            max[0] = Math.max(max[0], v0[0], v1[0], v2[0]);
+            max[1] = Math.max(max[1], v0[1], v1[1], v2[1]);
+            max[2] = Math.max(max[2], v0[2], v1[2], v2[2]);
 
             triOffset += 48;
         }
+
+        new Float32Array(boundingBoxes, boundingBoxOffset).set([
+            min[0], min[1], min[2], 0,
+            max[0], max[1], max[2],
+        ]);
+        new Uint32Array(boundingBoxes, boundingBoxOffset + 28).set([boxTriangleIndex]);
+        
+        boundingBoxOffset += 32;
     });
 
     const materials = new ArrayBuffer(nMaterialBytes);
@@ -132,6 +163,7 @@ export const loadGltfScene = async (url: string) => {
     // }
 
     return {
+        boundingBoxes,
         triangles,
         materials,
     };
