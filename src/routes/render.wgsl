@@ -57,6 +57,10 @@ var<storage, read_write> compact_out: array<Ray>;
 @binding(8)
 var<storage, read_write> radix_bools: array<vec4u>;
 
+@group(0)
+@binding(9)
+var<storage, read_write> material_out: array<IntersectionResult>;
+
 
 struct Ray {
     origin: vec3f,
@@ -263,7 +267,7 @@ fn comp_material_upsweep(
     let index_right = (thread_index + 1) * uniforms.compact_sweep_step - 1;
     if index_right >= arrayLength(&radix_bools) { return; }
 
-    let index_left = index_right - arrayLength(&radix_bools) / 2;
+    let index_left = index_right - uniforms.compact_sweep_step / 2;
 
     radix_bools[index_right] += radix_bools[index_left];
 }
@@ -277,7 +281,7 @@ fn comp_material_downsweep(
     let index_right = (thread_index + 1) * uniforms.compact_sweep_step - 1;
     if index_right >= arrayLength(&radix_bools) { return; }
 
-    let index_left = index_right - arrayLength(&radix_bools) / 2;
+    let index_left = index_right - uniforms.compact_sweep_step / 2;
 
     let right = radix_bools[index_right];
     radix_bools[index_right] += radix_bools[index_left];
@@ -292,30 +296,42 @@ fn comp_material_scatter(
     let thread_index = global_id.x;
     if thread_index >= arrayLength(&intersections) { return; }
 
-
     let intersection = intersections[thread_index];
     let material_index_bits = shift_material_index(intersection.material_index);
 
     let current = radix_bools[thread_index];
-    let offset = radix_bools[arrayLength(&radix_bools) - 1]
-        + one_hot_4(shift_material_index(intersections[arrayLength(&intersections) - 1].material_index))
-            * select(0u, 1u, arrayLength(&intersections) == arrayLength(&radix_bools));
+    
+    let totals = radix_bools[arrayLength(&radix_bools) - 1];
+    
+    // edge case where the last element needs to be included
+    let last_element_contribution = select(
+        vec4u(0, 0, 0, 0),
+        one_hot_4(shift_material_index(intersections[arrayLength(&intersections) - 1].material_index)),
+        arrayLength(&intersections) == arrayLength(&radix_bools)
+    );
+    let final_totals = totals + last_element_contribution;
+
+    // starting positions for each material index
+    let group_0_start = 0u;
+    let group_1_start = final_totals.x;
+    let group_2_start = group_1_start + final_totals.y;
+    let group_3_start = group_2_start + final_totals.z;
 
     let intersection_index = select(
         select(
             select(
-                current.x,
-                current.y + offset.x,
+                group_0_start + current.x,
+                group_1_start + current.y,
                 material_index_bits == 1,
             ),
-            current.z + offset.y + offset.x,
+            group_2_start + current.z,
             material_index_bits == 2,
         ),
-        current.w + offset.z + offset.y + offset.x,
+        group_3_start + current.w,
         material_index_bits == 3,
     );
 
-    // radix_out[intersection_index] = intersection;
+    material_out[intersection_index] = intersection;
 }
 
 @compute
@@ -324,9 +340,9 @@ fn comp_material_copy_back(
     @builtin(global_invocation_id) global_id: vec3u,
 ) {
     let thread_index = global_id.x;
-    if thread_index >= arrayLength(&rays) { return; }
+    if thread_index >= arrayLength(&intersections) { return; }
 
-    rays[thread_index] = compact_out[thread_index];
+    intersections[thread_index] = material_out[thread_index];
 }
 
 

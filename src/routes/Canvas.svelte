@@ -44,7 +44,11 @@ onMount(async () => {
         return;
     }
 
-    device = await adapter.requestDevice();
+    device = await adapter.requestDevice({
+        requiredLimits: {
+            maxStorageBuffersPerShaderStage: 9,
+        }
+    });
     if (device === null) {
         err = "could not get device";
         return;
@@ -175,6 +179,22 @@ onMount(async () => {
 
             {
                 binding: 7,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: {
+                    type: "storage",
+                },
+            },
+
+            {
+                binding: 8,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: {
+                    type: "storage",
+                },
+            },
+
+            {
+                binding: 9,
                 visibility: GPUShaderStage.COMPUTE,
                 buffer: {
                     type: "storage",
@@ -330,6 +350,51 @@ onMount(async () => {
         },
     });
 
+    const computeMaterialBoolsPipeline = device.createComputePipeline({
+        layout: pipelineLayout,
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_set_material_bools",
+        },
+    });
+
+    const computeMaterialUpsweepPipeline = device.createComputePipeline({
+        layout: pipelineLayout,
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_material_upsweep",
+        },
+    });
+
+    const computeMaterialDownsweepPipeline = device.createComputePipeline({
+        layout: pipelineLayout,
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_material_downsweep",
+        },
+    });
+
+    const computeMaterialScatterPipeline = device.createComputePipeline({
+        layout: pipelineLayout,
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_material_scatter",
+        },
+    });
+
+    const computeMaterialCopyBackPipeline = device.createComputePipeline({
+        layout: pipelineLayout,
+
+        compute: {
+            module: renderShaderModule,
+            entryPoint: "comp_material_copy_back",
+        },
+    });
+
     status = "setting up render";
     okToRerender = true;
 
@@ -357,6 +422,11 @@ onMount(async () => {
         computeCompactDownsweepPipeline,
         computeCompactScatterPipeline,
         computeCompactCopyBackPipeline,
+        computeMaterialBoolsPipeline,
+        computeMaterialUpsweepPipeline,
+        computeMaterialDownsweepPipeline,
+        computeMaterialScatterPipeline,
+        computeMaterialCopyBackPipeline,
 
         onStatusChange: value => status = value,
     });
