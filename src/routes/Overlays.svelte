@@ -182,7 +182,10 @@ let shiftHeld = $state(false);
     </div>
 </div>
 
-<svelte:window onkeydown={event => shiftHeld = event.shiftKey} />
+<svelte:window
+    onkeydown={event => shiftHeld = event.shiftKey}
+    onkeyup={event => shiftHeld = event.shiftKey}
+/>
 
 <style lang="scss">
 .overlays {
