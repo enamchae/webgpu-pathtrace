@@ -11,9 +11,14 @@ let {
     err: string | null,
     store: Store,
 } = $props();
+
+let shiftHeld = $state(false);
 </script>
 
-<div class="overlays">
+<div
+    class="overlays"
+    class:hidden={shiftHeld}
+>
     <div class="panel">
         <div>
             <b>Status</b>&#x2003;{err === null ? status : `error: ${err}`}
@@ -168,8 +173,16 @@ let {
                 }}
             />
         </div>
+
+        <Separator />
+
+        <div>
+            Hold SHIFT to hide overlays
+        </div>
     </div>
 </div>
+
+<svelte:window onkeydown={event => shiftHeld = event.shiftKey} />
 
 <style lang="scss">
 .overlays {
@@ -186,6 +199,10 @@ let {
     opacity: 0.25;
 
     transition: opacity 0.2s ease-in-out;
+
+    &.hidden {
+        opacity: 0;
+    }
 
     &:hover {
         opacity: 1;
