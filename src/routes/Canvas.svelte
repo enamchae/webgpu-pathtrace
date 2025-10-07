@@ -46,6 +46,11 @@ onMount(async () => {
         return;
     }
 
+    device.lost.then(() => {
+        err = "gpu device was lost";
+    });
+    
+
     const context = canvas.getContext("webgpu");
     if (context === null) {
         err = "could not get context";
@@ -513,10 +518,6 @@ onMount(onResize);
 let pointerdown = $state(false);
 
 </script>
-
-{#if err !== null}
-    {err}
-{/if}
 
 <svelte:window
     onresize={onResize}

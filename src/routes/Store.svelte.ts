@@ -13,11 +13,11 @@ export class Store {
     renderTiming = $state<RenderTiming>(RenderTiming.afterEverySample);
     materialSorting = $state(false);
     spatialHierarchy = $state(SpatialHierarchy.octree);
-    dofRadius = $state(0);
-    dofDistance = $state(10);
+    dofRadius = $state(0.125);
+    dofDistance = $state(3.75);
     supersampleRate = $state(4);
     nSamplesPerGridCell = $state(1);
-    nMaxBounces = $state(16);
+    nMaxBounces = $state(10);
     readonly orbit = new CameraOrbit();
     
     

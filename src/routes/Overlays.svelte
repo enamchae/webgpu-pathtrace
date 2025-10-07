@@ -34,7 +34,7 @@ let {
         </div>
 
         <div>
-            <b>Total sample time (+ overhead)</b>&#x2003;{store.cumulativeSampleTime / 1000} s
+            <b>Total sample time (+ overhead)</b>&#x2003;{(store.cumulativeSampleTime / 1000).toFixed(3)} s
         </div>
 
         <Separator />

@@ -554,13 +554,13 @@ fn ray_intersects_bounding_box(box: BoundingBox, origin: vec3f, dir: vec3f) -> b
     let t1 = (box.min - origin) / dir;
     let t2 = (box.max - origin) / dir;
     
-    let tmin = min(t1, t2);
-    let tmax = max(t1, t2);
+    let mins = min(t1, t2);
+    let maxes = max(t1, t2);
     
-    let tmin_max = max(max(tmin.x, tmin.y), tmin.z);
-    let tmax_min = min(min(tmax.x, tmax.y), tmax.z);
+    let max_of_mins = max(max(mins.x, mins.y), mins.z);
+    let min_of_maxes = min(min(maxes.x, maxes.y), maxes.z);
     
-    return tmax_min >= tmin_max && tmax_min >= EPSILON;
+    return min_of_maxes >= max_of_mins && min_of_maxes >= EPSILON;
 }
 
 
