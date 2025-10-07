@@ -15,11 +15,11 @@ export class Store {
     spatialHierarchy = $state(SpatialHierarchy.octree);
     dofRadius = $state(0.125);
     dofDistance = $state(3.75);
-    supersampleRate = $state(4);
-    nSamplesPerGridCell = $state(1);
+    supersampleRate = $state(16);
+    nSamplesPerGridCell = $state(2);
     nMaxBounces = $state(10);
     readonly orbit = new CameraOrbit();
-    useBoundingBoxes = $state(true);
+    useBoundingBoxes = $state(false);
     
     
     nRenderedSamples = $state(0);
