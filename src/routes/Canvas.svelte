@@ -91,10 +91,10 @@ onMount(async () => {
         envBitmap,
         {boundingBoxes, triangles, materials},
     ] = await Promise.all([
-        fetch("/minedump_flats_2k.png")
+        fetch("./minedump_flats_2k.png")
             .then(response => response.blob())
             .then(createImageBitmap),
-        loadGltfScene("/cup.glb"),
+        loadGltfScene("./cup.glb"),
     ]);
     store.nTriangles = triangles.byteLength / 48;
 
