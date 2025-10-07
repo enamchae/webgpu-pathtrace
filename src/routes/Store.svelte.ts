@@ -19,6 +19,7 @@ export class Store {
     nSamplesPerGridCell = $state(1);
     nMaxBounces = $state(10);
     readonly orbit = new CameraOrbit();
+    useBoundingBoxes = $state(true);
     
     
     nRenderedSamples = $state(0);

@@ -488,6 +488,7 @@ $effect(() => {
     void store.orbit.lat;
     void store.orbit.long;
     void store.orbit.radius;
+    void store.useBoundingBoxes;
     if (!okToRerender) return;
     rerender?.(width, height);
 });

@@ -277,6 +277,8 @@ export const createRenderer = ({
 
         device.queue.writeBuffer(uniformsBuffer, 32, store.orbit.mat());
 
+        device.queue.writeBuffer(uniformsBuffer, 104, new Uint32Array([Number(store.useBoundingBoxes)]));
+
         onStatusChange("rendering");
 
         store.nRenderedSamples = 0;

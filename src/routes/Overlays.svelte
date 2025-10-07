@@ -90,6 +90,17 @@ let {
 
         <Separator />
 
+        <div>
+            <b>Bounding box culling</b>
+
+            <input
+                type="checkbox"
+                bind:checked={store.useBoundingBoxes}
+            />
+        </div>
+
+        <Separator />
+
         <div class="col">
             <b>DoF radius</b>
             <input

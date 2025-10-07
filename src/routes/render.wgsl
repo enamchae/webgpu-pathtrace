@@ -103,6 +103,8 @@ struct Uniforms {
 
     compact_sweep_step: u32, // 100
     radix_shift: u32, // 104
+
+    use_bounding_boxes: u32, // 108
 }
 
 struct Stored {
@@ -570,24 +572,39 @@ fn intersect(origin: vec3f, dir: vec3f, thread_index: u32) -> IntersectionResult
     var min_result = DistanceResult(vec3f(0, 0, 0), vec3f(0, 0, 0), INF);
     var closest_material_index = 0u;
 
-    let n_bounding_boxes = arrayLength(&bounding_boxes);
-    for (var i = 0u; i < n_bounding_boxes; i++) {
-        let box = bounding_boxes[i];
-        if !ray_intersects_bounding_box(box, origin, dir) { continue; }
+    let n_triangles = arrayLength(&triangles);
 
-        let start = box.triangle_index;
-        var end = arrayLength(&triangles);
-        if i != n_bounding_boxes - 1 {
-            end = bounding_boxes[i + 1].triangle_index;
+    if uniforms.use_bounding_boxes == 1 {
+        let n_bounding_boxes = arrayLength(&bounding_boxes);
+        for (var i = 0u; i < n_bounding_boxes; i++) {
+            let box = bounding_boxes[i];
+            if !ray_intersects_bounding_box(box, origin, dir) { continue; }
+
+            let start = box.triangle_index;
+            let end = select(n_triangles, bounding_boxes[i + 1].triangle_index, i != n_bounding_boxes - 1);
+
+            for (var j = 0u; j < n_triangles; j++) {
+                let triangle = triangles[j];
+                let result = triangle_distance(triangle, origin, dir);
+
+                if result.distance < min_result.distance {
+                    found = 1;
+                    closest_obj_index = j;
+                    min_result = result;
+                    closest_material_index = triangle.material_index;
+                }
+            }
         }
+    }
 
-        for (var j = 0u; j < arrayLength(&triangles); j++) {
-            let triangle = triangles[j];
+    else {
+        for (var i = 0u; i < n_triangles; i++) {
+            let triangle = triangles[i];
             let result = triangle_distance(triangle, origin, dir);
 
             if result.distance < min_result.distance {
                 found = 1;
-                closest_obj_index = j;
+                closest_obj_index = i;
                 min_result = result;
                 closest_material_index = triangle.material_index;
             }
