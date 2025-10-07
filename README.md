@@ -1,38 +1,61 @@
-# sv
+![cover render](/docs/cover.png)
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+# WebGPU raytracer
+This project is a pure JS/WebGPU implementation of a physically-based raytracer, containing a small demo scene of various materials.
 
-## Creating a project
+## Features
 
-If you're seeing this, you've probably already done this step. Congrats!
+### Lens distortion
+Instead of shooting rays out from a flat plane, we simulate the rays based on the surface of a sphere instead. The center of the screen $(0, 0)$ is a pole of the sphere; the distance $r$ from the center is proportional to the distance $\alpha \cdot r$ we walk along the sphere from the pole, at an angle based on the angle $\theta$ from the screen's +x-axis.
 
-```sh
-# create a new project in the current directory
-npx sv create
+$$
+\text{direction}
+=
+\begin{bmatrix}
+    \cos(\theta) & -\sin(\theta) & 0 \\
+    \sin(\theta) & \cos(\theta) & 0 \\
+    0 & 0 & 1
+\end{bmatrix}
+\begin{bmatrix}
+    \sin(\alpha \cdot r) \\
+    0 \\
+    -\cos(\alpha \cdot r)
+\end{bmatrix}, \text{ where } \theta = \tan^{-1}(y, x)
+$$
 
-# create a new project in my-app
-npx sv create my-app
-```
+This produces rounded edges even where mesh edges may be straight.
 
-## Developing
+### Diffuse reflection
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+### Glossy reflection
 
-```sh
-npm run dev
+### Diffuse and glossy refraction
 
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
+### Emission
 
-## Building
+### Stochastic antialiasing
 
-To create a production version of your app:
+### Depth of field
 
-```sh
-npm run build
-```
+### Environment mapping
 
-You can preview the production build with `npm run preview`.
+### gLTF mesh and material loading
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+### Bounding box culling
+
+### Terminated ray compaction/partioning
+
+### Ray material sorting/partitioning
+
+
+## Running this project
+This is a Deno/Node.js application that builds to a static web app. If you have Deno installed, you can use `deno i` and `deno task dev` to run this project locally and `deno task build` or `deno task build:rel` to build it.
+
+## Attributions
+**Environment map**: [Minedump Flats](https://polyhaven.com/a/minedump_flats) by Dimitrios Savva and Jarod Guest
+
+**Libraries**:
+- **THREE.js**. gLTF loading
+- **SvelteKit**. UI/reacitvity/routing
+- **SASS**. CSS preprocessing
+- **Vite**. Web app bundling and development environment
