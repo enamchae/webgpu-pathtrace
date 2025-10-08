@@ -20,6 +20,9 @@ The UI provides 3 rendering options:
 1. **After every sample**. The output colors are rendered after each sample is complete. No compaction is performed.
 1. **After all samples**. The output colors are rendered only after all samples are complete. (This tends to perform the fastest, but may cause the GPU to timeout and the render to be stopped prematurely.)
 
+### Controls
+The camera is controlled by an orbit control system and can be moved by dragging the left mouse button and dollied using the scrollwheel.
+
 ### Lens distortion
 Instead of shooting rays out from a flat plane:
 
