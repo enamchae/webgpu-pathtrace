@@ -12,6 +12,7 @@ Demo renders are provided below as well as their running times for performance c
 1. 10 maximum bounces
 1. $4\times 4$ supersampling rate
 1. 4 samples / grid cell
+tested using a Windows 11 machine with AMD Ryzen 7 8845HS w/ Radeon 780M Graphics (3.80 GHz), RTX 4070 notebook.
 
 ### Rendering modes
 The UI provides 3 rendering options:
