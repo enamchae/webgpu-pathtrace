@@ -25,16 +25,22 @@ $$\text{direction} = \begin{bmatrix} \cos(\theta) & -\sin(\theta) & 0 \\\ \sin(\
 
 This allows us to use very wide FoV values without the extreme stretching near the edges that the plane projection has. This also has the effect of rendering rounded edges even where mesh edges may be straight.
 
+|Sphere projection|Plane projection|
+|-|-|
+|![sphere, no overlays](/docs/linear/linear.png)|![plane, no overlays](/docs/distortion/plane.png)|
+|![sphere](/docs/linear/linear%20overlay.png)|![plane](/docs/distortion/plane%20overlay.png)|
+|0.445 s/frame|0.551 s/frame|
+
 ### Material properties
 Various types of materials are available in the scene:
 1. **Diffuse, non-transmissive**. Rays encountering the surface are reflected in all directions up to 90° from the surface normal, using cosine weighting.
 1. **Glossy, non-transmissive**. Rays encountering the surface are reflected across the surface normal.
-1. **Diffuse, transmissive icosphere**. Rays encountering the surface are either:
+1. **Diffuse, transmissive**. Rays encountering the surface are either:
     1. Reflected as if the surface was non-transmissive, with a probability based on Shlick's approximation of fresnel.
     1. Refracted in all directions up to 90° from the negative of the surface normal, using cosine weighting.
 1. **Glossy, transmisive**. Rays encountering the surface are either:
     1. Reflected as if the surface was non-transmissive, with a probability based on Shlick's approximation of fresnel.
-    1. Refracted 
+    1. Refracted using Snell's law based on the surface normal, with an IoR ratio of 1.5.
 1. **Emissive/environment**. Rays encountering the surface are terminated.
 
 Each material type has a color associated with it. The final color of a ray is the product of all the colors of all the surfaces it encounters, or black if the ray is not terminated (i.e., does not encounter a light source) within the maximum number of bounces.
@@ -58,17 +64,42 @@ Depth of field is simulated by uniformly jittering the starting point of each ra
 |0.438 s/frame|0.442 s/frame|0.443 s/frame|0.460 s/frame|0.547 s/frame|
 
 ### Environment mapping
+The environment texture used is an equirectangular texture. Rays that do not intersect any geometry are converted into spherical coordinates to determine how to sample from the environment texture.
+
+|Image environment|Cheap procedural environment|
+|-|-|
+|![image environment, no overlays](/docs/linear/linear.png)|![procedural environment, no overlays](/docs/environment/dir.png)|
+|![image environment](/docs/linear/linear%20overlay.png)|![procedural environment](/docs/environment/dir%20overlay.png)|
+|0.445 s/frame|0.446 s/frame|
+
+### Linear sRGB color blending
+To achieve more realistic lighting, RGB arithmetic is done in linear sRGB space and then approximately converted to gamma sRGB by raising each component to the power of $\frac1{2.2}$ as a final pass in the fragment shader when drawing the results to the screen. The environment texture is also converted into linear sRGB from gamma sRGB by raising its components to the power of $2.2$.
+
+|Linear sRGB blending|Gamma sRGB blending|
+|-|-|
+|![linear blending, no overlays](/docs/linear/linear.png)|![gamma blending, no overlays](/docs/linear/gamma.png)|
+|![linear blending](/docs/linear/linear%20overlay.png)|![gamma blending](/docs/linear/gamma%20overlay.png)|
+|0.445 s/frame|0.449 s/frame|
 
 ### gLTF mesh and material loading
+The demo scene is stored as a GLB file, loaded using THREE.js's `GLTFLoader`. This processing is done on the CPU.
+
+Supported features from the GLB include transformations and loading the material properties listed above (binary roughness, binary transmission, color, emission). The bounding box for each mesh is also computed for bounding box culling. Buffers for triangle data, materials, and bounding boxes are passed to the GPU.
 
 ### Bounding box culling
+Bounding box culling, the optimization where we only check a ray against a triangle if we know the ray intersects the mesh's bounding box, is togglable.
+
+This optimization seems to increase the running time as currently implemented.
+
+|Not culled|Culled|
+|-|-|
+|![culled, no overlays](/docs/linear/linear.png)|![culled, no overlays](/docs/boundingbox/culled.png)|
+|![culled](/docs/linear/linear%20overlay.png)|![culled](/docs/boundingbox/culled%20overlay.png)|
+|0.445 s/frame|2.054 s/frame|
 
 ### Terminated ray compaction/partioning
 
 ### Ray material sorting/partitioning
-
-### Linear sRGB color blending
-To achieve more realistic lighting, RGB arithmetic is done in linear sRGB space and then approximately converted to gamma sRGB by raising each component to the power of $\frac1{2.2}$ as a final pass in the fragment shader when drawing the results to the scren. The environment texture is converted in linear sRGB from gamma sRGB by raising its components to the power of $2.2$.
 
 
 ## Running this project
