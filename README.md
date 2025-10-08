@@ -6,6 +6,12 @@ This project is a TypeScript/WebGPU implementation of a physically-based raytrac
 ## Features
 Like many raytracers, this raytracer begins by spawning a set of rays (defined by an origin point and direction vector) based on the viewer's location and orientation. Each ray is then checked against all the geometry in the scene to determine what it strikes first. The colors of the ray and direction in which the ray is reflected or refracted is determined based on the material of the surface it intersects.
 
+Demo renders are provided below as well as their running times for performance comparison. The baseline is a $800 \times 500$ px render with default settings (except DoF):
+1. *After every sample* rendering mode
+1. 10 maximum bounces
+1. $4\times 4$ supersampling rate
+1. 4 samples / grid cell
+
 ### Rendering modes
 The UI provides 3 rendering options:
 1. **After every sample (coherent)**. The output colors are rendered after each sample is complete. Techniques involving compaction/sorting/partitioning based on whether a ray is done processing and what material the ray bounced off of are used here. (This tends to perform the slowest.)
@@ -89,7 +95,7 @@ Supported features from the GLB include transformations and loading the material
 ### Bounding box culling
 Bounding box culling, the optimization where we only check a ray against a triangle if we know the ray intersects the mesh's bounding box, is togglable.
 
-This optimization seems to increase the running time as currently implemented.
+Despite the decrease in the number of processed triangles per ray, this optimization seems to increase the running time as currently implemented.
 
 |Not culled|Culled|
 |-|-|
@@ -97,10 +103,16 @@ This optimization seems to increase the running time as currently implemented.
 |![culled](/docs/linear/linear%20overlay.png)|![culled](/docs/boundingbox/culled%20overlay.png)|
 |0.445 s/frame|2.054 s/frame|
 
-### Terminated ray compaction/partioning
+### Ray compaction/partioning
+If the render mode is *After every sample (coherent)*, then after each bounce, the renderer will perform stream compaction/sorting/partitioning, by material before shading and then by terminated status after shading. Compute shaders for prefix sum, radix sort, and scatter are run to perform this partitioning. 
 
-### Ray material sorting/partitioning
+Despite the cache efficiency of this optimization, it seems to increase the running time as currently implemented.
 
+|Not coherent|Coherent|
+|-|-|
+|![culled, no overlays](/docs/linear/linear.png)|![culled, no overlays](/docs/coherent/coherent.png)|
+|![culled](/docs/linear/linear%20overlay.png)|![culled](/docs/coherent/coherent%20overlay.png)|
+|0.445 s/frame|1.020 s/frame|
 
 ## Running this project
 This is a Deno/Node.js application that builds to a static web app. If you have Deno installed, you can use `deno i` and `deno task dev` to run this project locally and `deno task build` or `deno task build:rel` to build it.
