@@ -18,9 +18,7 @@ tested using a Windows 11 machine with AMD Ryzen 7 8845HS w/ Radeon 780M Graphic
 The UI provides 3 rendering options:
 1. **After every sample (coherent)**. The output colors are rendered after each sample is complete. Techniques involving compaction/sorting/partitioning based on whether a ray is done processing and what material the ray bounced off of are used here. (This tends to perform the slowest.)
 1. **After every sample**. The output colors are rendered after each sample is complete. No compaction is performed.
-1. **After all samples**. The output colors are rendered only after all samples are complete. (This tends to perform the fastest, but may cause the GPU to hang and the render to be stopped prematurely.)
-
-The difference in render time will often vary with the remaining features.
+1. **After all samples**. The output colors are rendered only after all samples are complete. (This tends to perform the fastest, but may cause the GPU to timeout and the render to be stopped prematurely.)
 
 ### Lens distortion
 Instead of shooting rays out from a flat plane:
