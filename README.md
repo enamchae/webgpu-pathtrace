@@ -17,7 +17,7 @@ The difference in render time will often vary with the remaining features.
 ### Lens distortion
 Instead of shooting rays out from a flat plane:
 
-$$\text{direction} = \operatorname{normalize}\left(\begin{bmatrix}\alpha \cdot x \\\ \alpha \cdot y \\\ -1\end{bmatrix}\right)$$
+$$\text{direction} = \text{normalize}\left(\begin{bmatrix}\alpha \cdot x \\\ \alpha \cdot y \\\ -1\end{bmatrix}\right)$$
 
 we simulate the rays based on the surface of a sphere instead. The center of the screen $(0, 0)$ is a pole of the sphere, and the distance $r$ from the center is proportional to the distance $\alpha \cdot r$ we walk along the sphere from the pole, at an angle based on the angle $\theta$ from the screen's +x-axis.
 
@@ -25,15 +25,28 @@ $$\text{direction} = \begin{bmatrix} \cos(\theta) & -\sin(\theta) & 0 \\\ \sin(\
 
 This allows us to use very wide FoV values without the extreme stretching near the edges that the plane projection has. This also has the effect of rendering rounded edges even where mesh edges may be straight.
 
-### Diffuse reflection
+### Material properties
+Various types of materials are available in the scene:
+1. **Diffuse, non-transmissive**. Rays encountering the surface are reflected in all directions up to 90° from the surface normal, using cosine weighting.
+1. **Glossy, non-transmissive**. Rays encountering the surface are reflected across the surface normal.
+1. **Diffuse, transmissive icosphere**. Rays encountering the surface are either:
+    1. Reflected as if the surface was non-transmissive, with a probability based on Shlick's approximation of fresnel.
+    1. Refracted in all directions up to 90° from the negative of the surface normal, using cosine weighting.
+1. **Glossy, transmisive**. Rays encountering the surface are either:
+    1. Reflected as if the surface was non-transmissive, with a probability based on Shlick's approximation of fresnel.
+    1. Refracted 
+1. **Emissive/environment**. Rays encountering the surface are terminated.
 
-### Glossy reflection
+Each material type has a color associated with it. The final color of a ray is the product of all the colors of all the surfaces it encounters, or black if the ray is not terminated (i.e., does not encounter a light source) within the maximum number of bounces.
 
-### Diffuse and glossy refraction
+### Sampling, stochastic antialiasing
+Antialiasing, or smoothing of edges, is performed by supersampling each pixel. Given a supersampling rate $n$, each pixel is divided into an $n \times n$ grid, and a random point in each grid cell is selected as the direction of the ray. If $m$ is the number of samples per grid cell, then the final number of samples is $n^2 \times m$. Colors for each pixel are written to an output buffer by progressively taking the average based on the current sample number.
 
-### Emission
-
-### Stochastic antialiasing
+|No supersampling, 64 samples / grid cell|$4 \times 4$ supersampling, 4 samples / grid cell|$8 \times 8$ supersampling, 1 sample / grid cell|
+|-|-|-|
+|![64x1, no overlays](/docs/antialiasing/64x1.png)|![4x4, no overlays](/docs/antialiasing/4x4.png)|![1x8, no overlays](/docs/antialiasing/1x8.png)|
+|![64x1](/docs/antialiasing/64x1%20overlay.png)|![4x4](/docs/antialiasing/4x4%20overlay.png)|![1x8](/docs/antialiasing/1x8%20overlay.png)|
+|0.437 s/frame|0.439 s/frame|0.443 s/frame|
 
 ### Depth of field
 Depth of field is simulated by uniformly jittering the starting point of each ray within a disc aligned with the screen (correlated with aperture size), and then adjusting the ray direction based on the focus distance (correlated with focal length).
