@@ -8,6 +8,7 @@ Like many raytracers, this raytracer begins by spawning a set of rays (defined b
 
 Demo renders are provided below as well as their running times for performance comparison. The baseline is a $800 \times 500$ px render with default settings (except DoF):
 1. *After every sample* rendering mode
+1. DoF off (0 radius, 1 distance)
 1. 10 maximum bounces
 1. $4\times 4$ supersampling rate
 1. 4 samples / grid cell
