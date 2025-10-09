@@ -12,13 +12,14 @@ Demo renders are provided below as well as their running times for performance c
 1. 10 maximum bounces
 1. $4\times 4$ supersampling rate
 1. 4 samples / grid cell
-tested using a Windows 11 machine with AMD Ryzen 7 8845HS w/ Radeon 780M Graphics (3.80 GHz), RTX 4070 notebook.
+
+Tested using a Windows 11 machine with AMD Ryzen 7 8845HS w/ Radeon 780M Graphics (3.80 GHz), RTX 4070 notebook.
 
 ### Rendering modes
 The UI provides 3 rendering options:
 1. **After every sample (coherent)**. The output colors are rendered after each sample is complete. Techniques involving compaction/sorting/partitioning based on whether a ray is done processing and what material the ray bounced off of are used here. (This tends to perform the slowest.)
 1. **After every sample**. The output colors are rendered after each sample is complete. No compaction is performed.
-1. **After all samples**. The output colors are rendered only after all samples are complete. (This tends to perform the fastest, but may cause the GPU to timeout and the render to be stopped prematurely.)
+1. **After all samples**. The output colors are rendered only after all samples are complete. (This tends to perform the fastest, but may cause the GPU to timeout on the demo scene and the render to be stopped prematurely.)
 
 ### Controls
 The camera is controlled by an orbit control system and can be moved by dragging the left mouse button and dollied using the scrollwheel.
