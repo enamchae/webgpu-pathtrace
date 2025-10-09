@@ -1,10 +1,10 @@
 ![cover render](/docs/cover.png)
 
-# WebGPU raytracer
-This project is a TypeScript/WebGPU implementation of a physically-based raytracer, containing a small demo scene of various materials.
+# WebGPU pathtracer
+This project is a TypeScript/WebGPU implementation of a physically-based pathtracer, containing a small demo scene of various materials.
 
 ## Features
-Like many raytracers, this raytracer begins by spawning a set of rays (defined by an origin point and direction vector) based on the viewer's location and orientation. Each ray is then checked against all the geometry in the scene to determine what it strikes first. The colors of the ray and direction in which the ray is reflected or refracted is determined based on the material of the surface it intersects.
+This pathtracer begins by spawning a set of rays (defined by an origin point and direction vector) based on the viewer's location and orientation. Each ray is then checked against all the geometry in the scene to determine what it strikes first. The colors of the ray and direction in which the ray is reflected or refracted is determined based on the material of the surface it intersects.
 
 Demo renders are provided below as well as their running times for performance comparison. The baseline is a $800 \times 500$ px render with default settings (except DoF):
 1. *After every sample* rendering mode
